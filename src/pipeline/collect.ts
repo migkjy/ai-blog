@@ -2,17 +2,37 @@ import Parser from "rss-parser";
 import { neon } from "@neondatabase/serverless";
 
 const RSS_FEEDS = [
+  // International AI news (English)
   {
     name: "The Verge AI",
     url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+    lang: "en",
   },
   {
     name: "TechCrunch AI",
     url: "https://techcrunch.com/category/artificial-intelligence/feed/",
+    lang: "en",
   },
   {
     name: "MIT Tech Review AI",
     url: "https://www.technologyreview.com/topic/artificial-intelligence/feed",
+    lang: "en",
+  },
+  // Korean AI news
+  {
+    name: "AI타임스",
+    url: "https://www.aitimes.com/rss/allArticle.xml",
+    lang: "ko",
+  },
+  {
+    name: "인공지능신문",
+    url: "https://www.aitimes.kr/rss/allArticle.xml",
+    lang: "ko",
+  },
+  {
+    name: "ZDNet Korea AI",
+    url: "https://zdnet.co.kr/rss/news_ai.xml",
+    lang: "ko",
   },
 ];
 
@@ -23,6 +43,79 @@ interface CollectedItem {
   summary: string | null;
   content_snippet: string | null;
   published_at: Date | null;
+}
+
+/**
+ * Normalize a URL for deduplication.
+ * Removes trailing slashes, query params for tracking, and normalizes protocol.
+ */
+function normalizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    // Remove common tracking params
+    const trackingParams = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "ref", "source"];
+    for (const param of trackingParams) {
+      parsed.searchParams.delete(param);
+    }
+    // Remove trailing slash
+    let normalized = parsed.toString();
+    if (normalized.endsWith("/")) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Check if two titles are similar enough to be considered duplicates.
+ * Uses a simple word overlap heuristic.
+ */
+function isSimilarTitle(a: string, b: string): boolean {
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9가-힣\s]/g, "").split(/\s+/).filter(Boolean);
+
+  const wordsA = normalize(a);
+  const wordsB = normalize(b);
+
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+
+  const setA = new Set(wordsA);
+  const overlap = wordsB.filter((w) => setA.has(w)).length;
+  const overlapRatio = overlap / Math.min(wordsA.length, wordsB.length);
+
+  return overlapRatio > 0.7;
+}
+
+/**
+ * Deduplicate news items by URL normalization and title similarity.
+ */
+function deduplicateNews(items: CollectedItem[]): CollectedItem[] {
+  const seen = new Map<string, CollectedItem>();
+  const result: CollectedItem[] = [];
+
+  for (const item of items) {
+    const normalizedUrl = normalizeUrl(item.url);
+
+    // Check URL-based duplicate
+    if (seen.has(normalizedUrl)) continue;
+
+    // Check title-based duplicate
+    let isDuplicate = false;
+    for (const existing of result) {
+      if (isSimilarTitle(item.title, existing.title)) {
+        isDuplicate = true;
+        break;
+      }
+    }
+    if (isDuplicate) continue;
+
+    seen.set(normalizedUrl, item);
+    result.push(item);
+  }
+
+  return result;
 }
 
 export async function collectNews(): Promise<CollectedItem[]> {
@@ -37,7 +130,7 @@ export async function collectNews(): Promise<CollectedItem[]> {
 
   for (const feed of RSS_FEEDS) {
     try {
-      console.log(`[collect] Fetching RSS: ${feed.name}...`);
+      console.log(`[collect] Fetching RSS: ${feed.name} (${feed.lang})...`);
       const result = await parser.parseURL(feed.url);
 
       const items = (result.items || []).slice(0, 10).map((item) => ({
@@ -52,12 +145,16 @@ export async function collectNews(): Promise<CollectedItem[]> {
       allItems.push(...items);
       console.log(`[collect] ${feed.name}: ${items.length} items`);
     } catch (err) {
-      console.error(`[collect] Error fetching ${feed.name}:`, err);
+      // Korean RSS feeds may be unreliable; log warning but continue
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[collect] Error fetching ${feed.name}: ${msg}`);
     }
   }
 
-  console.log(`[collect] Total collected: ${allItems.length} items`);
-  return allItems;
+  // Deduplicate before returning
+  const deduped = deduplicateNews(allItems);
+  console.log(`[collect] Total collected: ${allItems.length} items, after dedup: ${deduped.length}`);
+  return deduped;
 }
 
 export async function saveCollectedNews(
@@ -73,14 +170,15 @@ export async function saveCollectedNews(
 
   for (const item of items) {
     if (!item.url) continue;
+    const normalizedUrl = normalizeUrl(item.url);
     try {
       await sql`
         INSERT INTO collected_news (title, url, source, summary, content_snippet, published_at)
-        VALUES (${item.title}, ${item.url}, ${item.source}, ${item.summary}, ${item.content_snippet}, ${item.published_at?.toISOString() || null})
+        VALUES (${item.title}, ${normalizedUrl}, ${item.source}, ${item.summary}, ${item.content_snippet}, ${item.published_at?.toISOString() || null})
         ON CONFLICT (url) DO NOTHING
       `;
       saved++;
-    } catch (err) {
+    } catch {
       // Duplicate URL, skip silently
     }
   }
