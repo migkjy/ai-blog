@@ -123,7 +123,7 @@ export default async function PostPage({
         <div className="flex-1">
           <p className="font-semibold text-gray-900 text-sm">이 글에서 소개된 도구가 궁금하신가요?</p>
           <p className="text-xs text-gray-600 mt-1">
-            AI 도구 디렉토리에서 50+ AI 서비스의 가격, 기능, 대안을 비교해보세요.
+            AI 도구 디렉토리에서 80+ AI 서비스의 가격, 기능, 대안을 비교해보세요.
           </p>
         </div>
         <a
