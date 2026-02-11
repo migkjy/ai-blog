@@ -60,8 +60,27 @@ export default async function PostPage({
     notFound();
   }
 
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": post.title,
+    "description": post.meta_description ?? post.excerpt ?? undefined,
+    "author": { "@type": "Organization", "name": "AI AppPro" },
+    "publisher": { "@type": "Organization", "name": "AI AppPro" },
+    "datePublished": post.published_at ?? post.created_at,
+    "dateModified": post.updated_at ?? post.published_at ?? post.created_at,
+    "mainEntityOfPage": {
+      "@type": "WebPage",
+      "@id": `https://content-pipeline-sage.vercel.app/posts/${slug}`,
+    },
+  };
+
   return (
     <article className="mx-auto max-w-3xl px-4 py-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
       <Link
         href="/"
         className="inline-flex items-center gap-1 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-primary)] transition-colors mb-8"
