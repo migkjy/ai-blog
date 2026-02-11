@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import '@/styles/global.css';
+import PageTracker from '@/components/page-tracker';
 
 export const metadata: Metadata = {
   title: {
@@ -33,6 +34,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-white">
+        <PageTracker />
         <header className="border-b border-[var(--color-border)]">
           <nav className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
             <a href="/" className="text-xl font-bold text-[var(--color-primary)]">
