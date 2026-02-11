@@ -1,5 +1,6 @@
 import { getPublishedPosts, type BlogPost } from '@/lib/db';
 import Link from 'next/link';
+import NewsletterSignup from '@/components/newsletter-signup';
 
 export const revalidate = 60;
 
@@ -63,6 +64,8 @@ export default async function HomePage() {
           ))}
         </section>
       )}
+
+      <NewsletterSignup />
     </div>
   );
 }

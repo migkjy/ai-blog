@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
+import NewsletterSignup from '@/components/newsletter-signup';
 
 export const revalidate = 60;
 
@@ -98,7 +99,9 @@ export default async function PostPage({
         <Markdown remarkPlugins={[remarkGfm]}>{post.content}</Markdown>
       </div>
 
-      <footer className="mt-16 pt-8 border-t border-[var(--color-border)]">
+      <NewsletterSignup />
+
+      <footer className="mt-8 pt-8 border-t border-[var(--color-border)]">
         <Link
           href="/"
           className="text-[var(--color-primary)] hover:underline text-sm"
