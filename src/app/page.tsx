@@ -65,6 +65,23 @@ export default async function HomePage() {
         </section>
       )}
 
+      {/* AI 도구 디렉토리 크로스링크 */}
+      <section className="mt-12 rounded-xl border border-blue-200 bg-blue-50 p-6 text-center">
+        <h2 className="text-lg font-bold text-gray-900 mb-2">AI 도구 찾기</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          AI 도구 디렉토리에서 50+ AI 도구를 카테고리별로 비교해보세요.
+          가격, 사용법, 대안까지 한눈에 확인할 수 있습니다.
+        </p>
+        <a
+          href="https://ai-directory-seven.vercel.app"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+        >
+          AI 도구 디렉토리 바로가기 &rarr;
+        </a>
+      </section>
+
       <NewsletterSignup />
     </div>
   );

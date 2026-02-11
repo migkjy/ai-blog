@@ -99,6 +99,24 @@ export default async function PostPage({
         <Markdown remarkPlugins={[remarkGfm]}>{post.content}</Markdown>
       </div>
 
+      {/* AI 도구 디렉토리 배너 */}
+      <div className="mt-10 rounded-lg border border-blue-200 bg-blue-50 p-5 flex flex-col sm:flex-row items-center gap-4">
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900 text-sm">이 글에서 소개된 도구가 궁금하신가요?</p>
+          <p className="text-xs text-gray-600 mt-1">
+            AI 도구 디렉토리에서 50+ AI 서비스의 가격, 기능, 대안을 비교해보세요.
+          </p>
+        </div>
+        <a
+          href="https://ai-directory-seven.vercel.app"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+        >
+          도구 비교하기 &rarr;
+        </a>
+      </div>
+
       <NewsletterSignup />
 
       <footer className="mt-8 pt-8 border-t border-[var(--color-border)]">
