@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+@plugin '@tailwindcss/typography';
+
+@theme inline {
+  --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+:root {
+  --color-bg: #ffffff;
+  --color-text: #1a1a2e;
+  --color-text-muted: #64748b;
+  --color-primary: #2563eb;
+  --color-primary-light: #dbeafe;
+  --color-border: #e2e8f0;
+  --color-card: #ffffff;
+  --color-tag-bg: #f1f5f9;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
