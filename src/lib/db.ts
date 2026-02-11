@@ -42,3 +42,33 @@ export async function getAllSlugs(): Promise<string[]> {
   `;
   return rows.map((r) => r.slug as string);
 }
+
+export async function getCategories(): Promise<{ category: string; count: number }[]> {
+  const rows = await sql`
+    SELECT category, COUNT(*)::int as count
+    FROM blog_posts
+    WHERE published = true AND category IS NOT NULL
+    GROUP BY category
+    ORDER BY count DESC
+  `;
+  return rows as { category: string; count: number }[];
+}
+
+export async function getPostsByCategory(category: string): Promise<BlogPost[]> {
+  const rows = await sql`
+    SELECT * FROM blog_posts
+    WHERE published = true AND category = ${category}
+    ORDER BY published_at DESC NULLS LAST, created_at DESC
+  `;
+  return rows as BlogPost[];
+}
+
+export async function getRelatedPosts(slug: string, category: string, limit: number = 3): Promise<BlogPost[]> {
+  const rows = await sql`
+    SELECT * FROM blog_posts
+    WHERE published = true AND category = ${category} AND slug != ${slug}
+    ORDER BY published_at DESC NULLS LAST
+    LIMIT ${limit}
+  `;
+  return rows as BlogPost[];
+}
