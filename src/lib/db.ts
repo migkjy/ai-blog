@@ -72,3 +72,39 @@ export async function getRelatedPosts(slug: string, category: string, limit: num
   `;
   return rows as BlogPost[];
 }
+
+export async function getAdjacentPosts(slug: string): Promise<{
+  prev: Pick<BlogPost, 'title' | 'slug'> | null;
+  next: Pick<BlogPost, 'title' | 'slug'> | null;
+}> {
+  const current = await sql`
+    SELECT published_at, created_at FROM blog_posts
+    WHERE slug = ${slug} AND published = true
+    LIMIT 1
+  `;
+  if (current.length === 0) return { prev: null, next: null };
+
+  const publishedAt = current[0].published_at ?? current[0].created_at;
+
+  const [prevRows, nextRows] = await Promise.all([
+    sql`
+      SELECT title, slug FROM blog_posts
+      WHERE published = true
+        AND COALESCE(published_at, created_at) < ${publishedAt}
+      ORDER BY COALESCE(published_at, created_at) DESC
+      LIMIT 1
+    `,
+    sql`
+      SELECT title, slug FROM blog_posts
+      WHERE published = true
+        AND COALESCE(published_at, created_at) > ${publishedAt}
+      ORDER BY COALESCE(published_at, created_at) ASC
+      LIMIT 1
+    `,
+  ]);
+
+  return {
+    prev: prevRows.length > 0 ? (prevRows[0] as Pick<BlogPost, 'title' | 'slug'>) : null,
+    next: nextRows.length > 0 ? (nextRows[0] as Pick<BlogPost, 'title' | 'slug'>) : null,
+  };
+}

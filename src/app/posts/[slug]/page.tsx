@@ -1,4 +1,4 @@
-import { getPostBySlug, getAllSlugs, getRelatedPosts } from '@/lib/db';
+import { getPostBySlug, getAllSlugs, getRelatedPosts, getAdjacentPosts } from '@/lib/db';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import Markdown from 'react-markdown';
@@ -96,14 +96,14 @@ function TableOfContents({ headings }: { headings: { id: string; text: string; l
   if (headings.length < 3) return null;
 
   return (
-    <nav className="mb-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-tag-bg)] p-5">
+    <nav className="mb-12 rounded-2xl border border-[var(--color-border)] bg-[var(--color-tag-bg)] p-6">
       <h2 className="text-sm font-semibold text-[var(--color-text)] mb-3">목차</h2>
-      <ul className="space-y-1.5">
+      <ul className="space-y-2">
         {headings.map((h) => (
-          <li key={h.id} className={h.level === 3 ? 'ml-4' : ''}>
+          <li key={h.id} className={h.level === 3 ? 'ml-5' : ''}>
             <a
               href={`#${h.id}`}
-              className="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-primary)] transition-colors"
+              className="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-primary)] transition-colors leading-relaxed"
             >
               {h.text}
             </a>
@@ -128,9 +128,10 @@ export default async function PostPage({
 
   const readTime = estimateReadTime(post.content);
   const headings = extractHeadings(post.content);
-  const relatedPosts = post.category
-    ? await getRelatedPosts(slug, post.category, 3)
-    : [];
+  const [relatedPosts, adjacentPosts] = await Promise.all([
+    post.category ? getRelatedPosts(slug, post.category, 3) : Promise.resolve([]),
+    getAdjacentPosts(slug),
+  ]);
 
   const articleJsonLd = {
     "@context": "https://schema.org",
@@ -186,7 +187,7 @@ export default async function PostPage({
   }
 
   return (
-    <article className="mx-auto max-w-3xl px-4 py-12">
+    <article className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
@@ -197,7 +198,7 @@ export default async function PostPage({
       />
 
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] mb-8">
+      <nav className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] mb-8">
         <Link
           href="/"
           className="hover:text-[var(--color-primary)] transition-colors"
@@ -206,7 +207,7 @@ export default async function PostPage({
         </Link>
         {post.category && (
           <>
-            <span>/</span>
+            <span className="text-[var(--color-border)]">/</span>
             <Link
               href={`/?category=${encodeURIComponent(post.category)}`}
               className="hover:text-[var(--color-primary)] transition-colors"
@@ -215,22 +216,24 @@ export default async function PostPage({
             </Link>
           </>
         )}
-      </div>
+      </nav>
 
       {/* Header */}
-      <header className="mb-8">
+      <header className="mb-10">
         {post.category && (
           <Link
             href={`/?category=${encodeURIComponent(post.category)}`}
-            className="inline-block text-xs font-semibold text-[var(--color-primary)] bg-[var(--color-primary-light)] px-2.5 py-1 rounded-full mb-3 hover:opacity-80 transition-opacity"
+            className="inline-block text-xs font-semibold text-[var(--color-primary)] bg-[var(--color-primary-light)] px-2.5 py-1 rounded-full mb-4 hover:opacity-80 transition-opacity"
           >
             {post.category}
           </Link>
         )}
-        <h1 className="text-3xl font-extrabold leading-tight mb-4">{post.title}</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight mb-5 tracking-tight">
+          {post.title}
+        </h1>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3 text-sm text-[var(--color-text-muted)]">
-            <span>{post.author}</span>
+            <span className="font-medium">{post.author}</span>
             <span>&middot;</span>
             <time>{formatDate(post.published_at ?? post.created_at)}</time>
             <span>&middot;</span>
@@ -242,7 +245,7 @@ export default async function PostPage({
           />
         </div>
         {post.tags && post.tags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4">
+          <div className="flex flex-wrap gap-2 mt-5">
             {post.tags.map((tag) => (
               <span
                 key={tag}
@@ -264,8 +267,8 @@ export default async function PostPage({
       </div>
 
       {/* AI Directory Banner */}
-      <div className="mt-10 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 flex flex-col sm:flex-row items-center gap-4">
-        <div className="flex-1">
+      <div className="mt-12 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 sm:p-8 flex flex-col sm:flex-row items-center gap-4">
+        <div className="flex-1 text-center sm:text-left">
           <p className="font-semibold text-gray-900 text-sm">이 글에서 소개된 도구가 궁금하신가요?</p>
           <p className="text-xs text-gray-600 mt-1">
             AI 도구 디렉토리에서 80+ AI 서비스의 가격, 기능, 대안을 비교해보세요.
@@ -275,28 +278,60 @@ export default async function PostPage({
           href="https://ai-directory-seven.vercel.app"
           target="_blank"
           rel="noopener noreferrer"
-          className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+          className="shrink-0 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
         >
           도구 비교하기 &rarr;
         </a>
       </div>
 
+      {/* Prev/Next Navigation */}
+      {(adjacentPosts.prev || adjacentPosts.next) && (
+        <nav className="mt-12 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {adjacentPosts.prev ? (
+            <Link
+              href={`/posts/${adjacentPosts.prev.slug}`}
+              className="group flex flex-col rounded-2xl border border-[var(--color-border)] p-5 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
+            >
+              <span className="text-xs text-[var(--color-text-muted)] mb-2">&larr; 이전 글</span>
+              <span className="text-sm font-semibold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-2 leading-snug">
+                {adjacentPosts.prev.title}
+              </span>
+            </Link>
+          ) : (
+            <div />
+          )}
+          {adjacentPosts.next ? (
+            <Link
+              href={`/posts/${adjacentPosts.next.slug}`}
+              className="group flex flex-col items-end text-right rounded-2xl border border-[var(--color-border)] p-5 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
+            >
+              <span className="text-xs text-[var(--color-text-muted)] mb-2">다음 글 &rarr;</span>
+              <span className="text-sm font-semibold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-2 leading-snug">
+                {adjacentPosts.next.title}
+              </span>
+            </Link>
+          ) : (
+            <div />
+          )}
+        </nav>
+      )}
+
       {/* Related Posts */}
       {relatedPosts.length > 0 && (
-        <section className="mt-12">
-          <h2 className="text-lg font-bold mb-4">관련 포스트</h2>
+        <section className="mt-14">
+          <h2 className="text-lg font-bold mb-5">관련 포스트</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {relatedPosts.map((rp) => (
               <Link
                 key={rp.id}
                 href={`/posts/${rp.slug}`}
-                className="group block rounded-xl border border-[var(--color-border)] p-4 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
+                className="group block rounded-2xl border border-[var(--color-border)] p-5 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
               >
-                <h3 className="text-sm font-bold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors mb-2 line-clamp-2">
+                <h3 className="text-sm font-bold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors mb-2 line-clamp-2 leading-snug">
                   {rp.title}
                 </h3>
                 {rp.excerpt && (
-                  <p className="text-xs text-[var(--color-text-muted)] line-clamp-2">
+                  <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 leading-relaxed">
                     {rp.excerpt}
                   </p>
                 )}
@@ -312,9 +347,9 @@ export default async function PostPage({
       <footer className="mt-8 pt-8 border-t border-[var(--color-border)]">
         <Link
           href="/"
-          className="text-[var(--color-primary)] hover:underline text-sm"
+          className="text-[var(--color-primary)] hover:underline text-sm font-medium"
         >
-          &larr; 다른 포스트 보기
+          &larr; 모든 포스트 보기
         </Link>
       </footer>
     </article>
