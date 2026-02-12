@@ -23,6 +23,14 @@ export const metadata: Metadata = {
     title: 'AI AppPro - AI로 비즈니스를 혁신하세요',
     description: '소상공인과 중소기업을 위한 실전 AI 활용 가이드',
     url: BASE_URL,
+    images: [
+      {
+        url: '/og?title=AI+AppPro+%EB%B8%94%EB%A1%9C%EA%B7%B8&description=%EC%8B%A4%EC%A0%84+AI+%ED%99%9C%EC%9A%A9+%EA%B0%80%EC%9D%B4%EB%93%9C',
+        width: 1200,
+        height: 630,
+        alt: 'AI AppPro 블로그',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',

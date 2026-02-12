@@ -44,6 +44,14 @@ export async function generateMetadata({
       publishedTime: post.published_at ?? undefined,
       authors: [post.author],
       siteName: 'AI AppPro',
+      images: [
+        {
+          url: `/og?title=${encodeURIComponent(post.title)}&description=${encodeURIComponent(post.meta_description ?? post.excerpt ?? '')}&category=${encodeURIComponent(post.category ?? '')}`,
+          width: 1200,
+          height: 630,
+          alt: post.title,
+        },
+      ],
     },
     twitter: {
       card: 'summary_large_image',
@@ -126,18 +134,45 @@ export default async function PostPage({
 
   const articleJsonLd = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "BlogPosting",
     "headline": post.title,
     "description": post.meta_description ?? post.excerpt ?? undefined,
     "author": { "@type": "Organization", "name": "AI AppPro" },
-    "publisher": { "@type": "Organization", "name": "AI AppPro" },
+    "publisher": { "@type": "Organization", "name": "AI AppPro", "url": "https://apppro.kr" },
     "datePublished": post.published_at ?? post.created_at,
     "dateModified": post.updated_at ?? post.published_at ?? post.created_at,
     "mainEntityOfPage": {
       "@type": "WebPage",
       "@id": `${BASE_URL}/posts/${slug}`,
     },
+    "image": `${BASE_URL}/og?title=${encodeURIComponent(post.title)}&category=${encodeURIComponent(post.category ?? '')}`,
     "wordCount": post.content.replace(/<[^>]*>/g, '').length,
+    ...(post.category ? { "articleSection": post.category } : {}),
+    ...(post.tags && post.tags.length > 0 ? { "keywords": post.tags.join(', ') } : {}),
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "블로그",
+        "item": BASE_URL,
+      },
+      ...(post.category ? [{
+        "@type": "ListItem",
+        "position": 2,
+        "name": post.category,
+        "item": `${BASE_URL}/?category=${encodeURIComponent(post.category)}`,
+      }] : []),
+      {
+        "@type": "ListItem",
+        "position": post.category ? 3 : 2,
+        "name": post.title,
+      },
+    ],
   };
 
   // Add heading IDs to content for TOC links
@@ -155,6 +190,10 @@ export default async function PostPage({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
 
       {/* Breadcrumb */}
