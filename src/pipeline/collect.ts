@@ -1,45 +1,152 @@
 import Parser from "rss-parser";
 import { neon } from "@neondatabase/serverless";
 
-const RSS_FEEDS = [
-  // International AI news (English)
+// --- RSS Feed Sources (from content-strategy.md) ---
+
+export interface FeedSource {
+  name: string;
+  url: string;
+  lang: "en" | "ko";
+  grade: "S" | "A" | "B";
+  category: "news" | "official" | "community" | "research";
+}
+
+export const RSS_FEEDS: FeedSource[] = [
+  // === International AI News (English) ===
   {
     name: "The Verge AI",
     url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     lang: "en",
+    grade: "A",
+    category: "news",
   },
   {
     name: "TechCrunch AI",
     url: "https://techcrunch.com/category/artificial-intelligence/feed/",
     lang: "en",
+    grade: "A",
+    category: "news",
   },
   {
     name: "MIT Tech Review AI",
     url: "https://www.technologyreview.com/topic/artificial-intelligence/feed",
     lang: "en",
+    grade: "S",
+    category: "news",
   },
-  // Korean AI news
+  {
+    name: "Ars Technica",
+    url: "https://feeds.arstechnica.com/arstechnica/technology-lab",
+    lang: "en",
+    grade: "A",
+    category: "news",
+  },
+  {
+    name: "Hacker News AI",
+    url: "https://hnrss.org/best?q=AI+OR+LLM+OR+GPT",
+    lang: "en",
+    grade: "A",
+    category: "community",
+  },
+
+  // === Official Blogs ===
+  {
+    name: "OpenAI Blog",
+    url: "https://openai.com/blog/rss.xml",
+    lang: "en",
+    grade: "S",
+    category: "official",
+  },
+  {
+    name: "Google AI Blog",
+    url: "https://blog.google/technology/ai/rss/",
+    lang: "en",
+    grade: "S",
+    category: "official",
+  },
+  {
+    name: "Anthropic Blog",
+    url: "https://www.anthropic.com/rss.xml",
+    lang: "en",
+    grade: "S",
+    category: "official",
+  },
+  {
+    name: "Hugging Face Blog",
+    url: "https://huggingface.co/blog/feed.xml",
+    lang: "en",
+    grade: "A",
+    category: "official",
+  },
+  {
+    name: "NVIDIA AI Blog",
+    url: "https://blogs.nvidia.com/feed/",
+    lang: "en",
+    grade: "A",
+    category: "official",
+  },
+
+  // === Korean AI News ===
   {
     name: "AI타임스",
     url: "https://www.aitimes.com/rss/allArticle.xml",
     lang: "ko",
+    grade: "A",
+    category: "news",
   },
   {
     name: "인공지능신문",
     url: "https://www.aitimes.kr/rss/allArticle.xml",
     lang: "ko",
+    grade: "A",
+    category: "news",
   },
   {
     name: "ZDNet Korea AI",
     url: "https://zdnet.co.kr/rss/news_ai.xml",
     lang: "ko",
+    grade: "A",
+    category: "news",
+  },
+  {
+    name: "블로터",
+    url: "https://www.bloter.net/feed",
+    lang: "ko",
+    grade: "A",
+    category: "news",
+  },
+  {
+    name: "ITWorld Korea",
+    url: "https://www.itworld.co.kr/rss/feed",
+    lang: "ko",
+    grade: "A",
+    category: "news",
+  },
+
+  // === Community / Reddit ===
+  {
+    name: "Reddit r/artificial",
+    url: "https://www.reddit.com/r/artificial/.rss",
+    lang: "en",
+    grade: "B",
+    category: "community",
+  },
+  {
+    name: "Reddit r/LocalLLaMA",
+    url: "https://www.reddit.com/r/LocalLLaMA/.rss",
+    lang: "en",
+    grade: "A",
+    category: "community",
   },
 ];
 
-interface CollectedItem {
+export interface CollectedItem {
   title: string;
   url: string;
   source: string;
+  lang: string;
+  grade: string;
+  category: string;
   summary: string | null;
   content_snippet: string | null;
   published_at: Date | null;
@@ -47,17 +154,17 @@ interface CollectedItem {
 
 /**
  * Normalize a URL for deduplication.
- * Removes trailing slashes, query params for tracking, and normalizes protocol.
  */
 function normalizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    // Remove common tracking params
-    const trackingParams = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "ref", "source"];
+    const trackingParams = [
+      "utm_source", "utm_medium", "utm_campaign",
+      "utm_content", "utm_term", "ref", "source",
+    ];
     for (const param of trackingParams) {
       parsed.searchParams.delete(param);
     }
-    // Remove trailing slash
     let normalized = parsed.toString();
     if (normalized.endsWith("/")) {
       normalized = normalized.slice(0, -1);
@@ -69,8 +176,7 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * Check if two titles are similar enough to be considered duplicates.
- * Uses a simple word overlap heuristic.
+ * Check if two titles are similar enough to be duplicates.
  */
 function isSimilarTitle(a: string, b: string): boolean {
   const normalize = (s: string) =>
@@ -97,11 +203,8 @@ function deduplicateNews(items: CollectedItem[]): CollectedItem[] {
 
   for (const item of items) {
     const normalizedUrl = normalizeUrl(item.url);
-
-    // Check URL-based duplicate
     if (seen.has(normalizedUrl)) continue;
 
-    // Check title-based duplicate
     let isDuplicate = false;
     for (const existing of result) {
       if (isSimilarTitle(item.title, existing.title)) {
@@ -118,45 +221,59 @@ function deduplicateNews(items: CollectedItem[]): CollectedItem[] {
   return result;
 }
 
+/**
+ * Collect news from all configured RSS feeds.
+ */
 export async function collectNews(): Promise<CollectedItem[]> {
   const parser = new Parser({
     timeout: 10000,
     headers: {
-      "User-Agent": "AI-AppPro-Newsletter-Bot/1.0",
+      "User-Agent": "AI-AppPro-ContentPipeline/2.0",
     },
   });
 
   const allItems: CollectedItem[] = [];
+  let successCount = 0;
+  let failCount = 0;
 
   for (const feed of RSS_FEEDS) {
     try {
-      console.log(`[collect] Fetching RSS: ${feed.name} (${feed.lang})...`);
+      console.log(`[collect] Fetching: ${feed.name} (${feed.lang}, ${feed.grade})...`);
       const result = await parser.parseURL(feed.url);
 
       const items = (result.items || []).slice(0, 10).map((item) => ({
         title: item.title || "Untitled",
         url: item.link || "",
         source: feed.name,
+        lang: feed.lang,
+        grade: feed.grade,
+        category: feed.category,
         summary: item.contentSnippet?.slice(0, 500) || null,
         content_snippet: item.content?.slice(0, 1000) || null,
         published_at: item.pubDate ? new Date(item.pubDate) : null,
       }));
 
       allItems.push(...items);
-      console.log(`[collect] ${feed.name}: ${items.length} items`);
+      successCount++;
+      console.log(`[collect]   ${feed.name}: ${items.length} items`);
     } catch (err) {
-      // Korean RSS feeds may be unreliable; log warning but continue
+      failCount++;
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[collect] Error fetching ${feed.name}: ${msg}`);
+      console.warn(`[collect]   ${feed.name}: FAILED — ${msg}`);
     }
   }
 
-  // Deduplicate before returning
   const deduped = deduplicateNews(allItems);
-  console.log(`[collect] Total collected: ${allItems.length} items, after dedup: ${deduped.length}`);
+  console.log(
+    `[collect] Summary: ${successCount}/${RSS_FEEDS.length} feeds OK, ` +
+    `${failCount} failed, ${allItems.length} raw → ${deduped.length} after dedup`
+  );
   return deduped;
 }
 
+/**
+ * Save collected news to DB. Returns count of newly inserted items.
+ */
 export async function saveCollectedNews(
   items: CollectedItem[]
 ): Promise<number> {
@@ -187,8 +304,12 @@ export async function saveCollectedNews(
   return saved;
 }
 
+/**
+ * Get recent unused news from DB, optionally filtered by language.
+ */
 export async function getUnusedNews(
-  limit: number = 10
+  limit: number = 10,
+  lang?: "en" | "ko"
 ): Promise<CollectedItem[]> {
   if (!process.env.DATABASE_URL) {
     console.error("[collect] DATABASE_URL not set");
@@ -196,6 +317,33 @@ export async function getUnusedNews(
   }
 
   const sql = neon(process.env.DATABASE_URL);
+
+  if (lang) {
+    // Filter by source language using source name heuristic
+    const koSources = RSS_FEEDS.filter((f) => f.lang === "ko").map((f) => f.name);
+    if (lang === "ko") {
+      const rows = await sql`
+        SELECT title, url, source, summary, content_snippet, published_at
+        FROM collected_news
+        WHERE used_in_newsletter = false
+          AND source = ANY(${koSources})
+        ORDER BY published_at DESC NULLS LAST
+        LIMIT ${limit}
+      `;
+      return rows as CollectedItem[];
+    } else {
+      const rows = await sql`
+        SELECT title, url, source, summary, content_snippet, published_at
+        FROM collected_news
+        WHERE used_in_newsletter = false
+          AND NOT (source = ANY(${koSources}))
+        ORDER BY published_at DESC NULLS LAST
+        LIMIT ${limit}
+      `;
+      return rows as CollectedItem[];
+    }
+  }
+
   const rows = await sql`
     SELECT title, url, source, summary, content_snippet, published_at
     FROM collected_news
@@ -221,6 +369,17 @@ if (process.argv[1]?.includes("collect")) {
   (async () => {
     const items = await collectNews();
     const saved = await saveCollectedNews(items);
-    console.log(`[collect] Done. ${saved} new items saved.`);
+
+    // Print source breakdown
+    const bySource = new Map<string, number>();
+    for (const item of items) {
+      bySource.set(item.source, (bySource.get(item.source) || 0) + 1);
+    }
+    console.log("\n--- Source Breakdown ---");
+    for (const [source, count] of bySource) {
+      console.log(`  ${source}: ${count}`);
+    }
+
+    console.log(`\n[collect] Done. ${saved} new items saved.`);
   })();
 }
