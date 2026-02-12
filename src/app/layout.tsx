@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import '@/styles/global.css';
 import PageTracker from '@/components/page-tracker';
 import MobileNav from '@/components/mobile-nav';
+import GoogleAnalytics from '@/components/GoogleAnalytics';
 
 const BASE_URL = 'https://content-pipeline-sage.vercel.app';
 
@@ -64,8 +65,15 @@ export default function RootLayout({
           crossOrigin="anonymous"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
         />
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title="AI AppPro 블로그"
+          href="/feed.xml"
+        />
       </head>
       <body className="min-h-screen bg-white">
+        <GoogleAnalytics />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
