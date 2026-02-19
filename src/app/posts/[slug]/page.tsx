@@ -61,6 +61,10 @@ export async function generateMetadata({
   };
 }
 
+function isHtmlContent(content: string): boolean {
+  return /<(p|div|h[1-6]|ul|ol|table|blockquote)\b/i.test(content);
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -263,7 +267,11 @@ export default async function PostPage({
 
       {/* Content */}
       <div className="prose prose-lg prose-slate max-w-none">
-        <Markdown remarkPlugins={[remarkGfm]}>{processedContent}</Markdown>
+        {isHtmlContent(post.content) ? (
+          <div dangerouslySetInnerHTML={{ __html: processedContent }} />
+        ) : (
+          <Markdown remarkPlugins={[remarkGfm]}>{processedContent}</Markdown>
+        )}
       </div>
 
       {/* AI Directory Banner */}
