@@ -469,13 +469,13 @@ export async function generateBlogPost(
     }
 
     const result: GeneratedBlogPost = {
-      title: parsed.title,
-      slug: parsed.slug || buildSlug(parsed.title),
-      content: parsed.content,
-      excerpt: parsed.excerpt,
-      meta_description: parsed.meta_description,
-      category: parsed.category || pillar || "AI도구리뷰",
-      tags: parsed.tags || [],
+      title: parsed.title as string,
+      slug: (parsed.slug as string) || buildSlug(parsed.title as string),
+      content: parsed.content as string,
+      excerpt: parsed.excerpt as string,
+      meta_description: parsed.meta_description as string,
+      category: (parsed.category as string) || pillar || "AI도구리뷰",
+      tags: (parsed.tags as string[]) || [],
     };
 
     console.log(`[generate-blog] 생성 완료: "${result.title}"`);
