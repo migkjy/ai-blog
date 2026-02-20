@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { neon } from "@neondatabase/serverless";
 import { sendNewsletter, getStibeeStatus } from "../lib/stibee";
+import { publishToSns, getGetlateStatus } from "../lib/getlate";
 
 const TEMPLATE_PATH = join(process.cwd(), "prompts", "newsletter-template.html");
 const STIBEE_LIST_ID = Number(process.env.STIBEE_LIST_ID) || 0;
@@ -209,6 +210,58 @@ export async function publishToBlog(
     console.error("[publish] Error publishing to blog:", err);
     return false;
   }
+}
+
+export async function publishToSnsViaGetlate(
+  newsletterId: string,
+  blogUrl?: string
+): Promise<boolean> {
+  if (!process.env.DATABASE_URL) {
+    console.error("[publish] DATABASE_URL not set");
+    return false;
+  }
+
+  const getlateStatus = getGetlateStatus();
+  console.log(`[publish] getlate mode: ${getlateStatus.mode}`);
+
+  if (!getlateStatus.configured) {
+    console.log("[publish] GETLATE_API_KEY not set. SNS 배포 스킵.");
+    return false;
+  }
+
+  const sql = neon(process.env.DATABASE_URL);
+  const rows = await sql`
+    SELECT subject, plain_content FROM newsletters WHERE id = ${newsletterId}
+  `;
+  const newsletter = rows[0];
+  if (!newsletter) return false;
+
+  // SNS용 짧은 요약 콘텐츠 생성 (plain_content 앞 200자)
+  const summary = (newsletter.plain_content as string)?.slice(0, 200) || newsletter.subject;
+  const snsContent = `[AI AppPro 주간 브리핑]\n${newsletter.subject}\n\n${summary}`;
+
+  const result = await publishToSns({
+    content: snsContent,
+    blogUrl,
+    publishNow: true,
+  });
+
+  if (result.mock) {
+    console.log("[publish] getlate mock 모드 — SNS 배포 스킵.");
+    return false;
+  }
+
+  if (result.success) {
+    console.log(`[publish] SNS 배포 완료. Post ID: ${result.postId}, 계정 수: ${result.accountCount}`);
+    return true;
+  }
+
+  if (result.error === 'NO_ACCOUNTS') {
+    console.log("[publish] getlate에 연결된 SNS 계정 없음. getlate.dev에서 계정 연결 필요.");
+  } else {
+    console.error(`[publish] SNS 배포 실패: ${result.error}`);
+  }
+  return false;
 }
 
 // CLI entry point

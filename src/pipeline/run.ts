@@ -1,6 +1,6 @@
 import { collectNews, saveCollectedNews } from "./collect";
 import { generateNewsletter, saveNewsletter } from "./generate";
-import { sendViaStibee, publishToBlog } from "./publish";
+import { sendViaStibee, publishToBlog, publishToSnsViaGetlate } from "./publish";
 
 async function runPipeline() {
   console.log("=== AI Newsletter Pipeline ===");
@@ -40,6 +40,15 @@ async function runPipeline() {
     console.log("Newsletter published to blog.");
   } else {
     console.log("Blog publish skipped or failed.");
+  }
+
+  // Step 4: SNS 배포 (getlate.dev)
+  console.log("--- Step 4: SNS Publish (getlate.dev) ---");
+  const snsPublished = await publishToSnsViaGetlate(newsletterId);
+  if (snsPublished) {
+    console.log("Newsletter published to SNS via getlate.dev.");
+  } else {
+    console.log("SNS publish skipped (getlate not configured or no accounts connected).");
   }
 
   console.log(`\n=== Pipeline Complete ===`);
