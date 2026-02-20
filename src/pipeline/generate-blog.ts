@@ -396,7 +396,7 @@ export async function generateBlogPost(
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-5-20250929",
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     });
@@ -404,7 +404,7 @@ export async function generateBlogPost(
     const responseText =
       message.content[0].type === "text" ? message.content[0].text : "";
 
-    // Parse JSON from response
+    // Parse JSON from response — handle multiline string values
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) {
       console.error(
@@ -417,7 +417,56 @@ export async function generateBlogPost(
       return null;
     }
 
-    const parsed = JSON.parse(jsonMatch[1]);
+    // Fix unescaped newlines inside JSON string values
+    let rawJson = jsonMatch[1];
+    // Replace literal newlines inside strings with escaped \n
+    rawJson = rawJson.replace(/(?<=: "(?:[^"\\]|\\.)*)(\n)(?=(?:[^"\\]|\\.)*")/g, "\\n");
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      // Fallback: extract fields individually with regex
+      console.warn("[generate-blog] JSON 직접 파싱 실패, 필드별 추출 시도...");
+      const extractField = (name: string): string => {
+        const re = new RegExp(`"${name}"\\s*:\\s*"([\\s\\S]*?)(?:(?<!\\\\)")`, "m");
+        const m = rawJson.match(re);
+        return m ? m[1].replace(/\n/g, "\\n") : "";
+      };
+      const extractArray = (name: string): string[] => {
+        const re = new RegExp(`"${name}"\\s*:\\s*\\[([^\\]]*?)\\]`);
+        const m = rawJson.match(re);
+        if (!m) return [];
+        return m[1].match(/"([^"]*)"/g)?.map((s: string) => s.replace(/"/g, "")) || [];
+      };
+
+      // Try re-parsing with escaped newlines in all string values
+      const fixedJson = rawJson.replace(
+        /"((?:[^"\\]|\\.)*)"/g,
+        (match: string) => {
+          try {
+            JSON.parse(match);
+            return match;
+          } catch {
+            return match.replace(/(?<!\\)\n/g, "\\n");
+          }
+        }
+      );
+
+      try {
+        parsed = JSON.parse(fixedJson);
+      } catch {
+        parsed = {
+          title: extractField("title"),
+          slug: extractField("slug"),
+          content: extractField("content").replace(/\\n/g, "\n"),
+          excerpt: extractField("excerpt"),
+          meta_description: extractField("meta_description"),
+          category: extractField("category"),
+          tags: extractArray("tags"),
+        };
+      }
+    }
 
     const result: GeneratedBlogPost = {
       title: parsed.title,
