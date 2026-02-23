@@ -1,26 +1,26 @@
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 
-const sql = neon(process.env.DATABASE_URL!);
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_DB_TOKEN!,
+});
 
 const BASE_URL = "https://content-pipeline-sage.vercel.app";
 
 export async function GET() {
-  const rows = await sql`
-    SELECT title, slug, excerpt, meta_description, category, published_at, created_at
-    FROM blog_posts
-    WHERE published = true
-    ORDER BY published_at DESC NULLS LAST, created_at DESC
-    LIMIT 20
-  `;
+  const result = await client.execute({
+    sql: 'SELECT title, slug, excerpt, meta_description, category, published_at, created_at FROM blog_posts WHERE published = 1 ORDER BY published_at DESC, created_at DESC LIMIT 20',
+    args: [],
+  });
 
-  const items = rows
+  const items = result.rows
     .map(
       (post) => `    <item>
       <title><![CDATA[${post.title}]]></title>
       <link>${BASE_URL}/posts/${post.slug}</link>
       <description><![CDATA[${post.excerpt || post.meta_description || ""}]]></description>
       ${post.category ? `<category>${post.category}</category>` : ""}
-      <pubDate>${new Date(post.published_at || post.created_at).toUTCString()}</pubDate>
+      <pubDate>${new Date((post.published_at || post.created_at) as string).toUTCString()}</pubDate>
       <guid>${BASE_URL}/posts/${post.slug}</guid>
     </item>`
     )

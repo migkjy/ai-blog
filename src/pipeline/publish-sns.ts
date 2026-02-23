@@ -57,7 +57,7 @@ interface SnsContent {
 }
 
 function getApiKey(): string | null {
-  return process.env.LATE_API_KEY || null;
+  return process.env.GETLATE_API_KEY || null;
 }
 
 async function lateRequest(
@@ -66,7 +66,7 @@ async function lateRequest(
   body?: unknown
 ): Promise<unknown> {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error("LATE_API_KEY not set");
+  if (!apiKey) throw new Error("GETLATE_API_KEY not set");
 
   const res = await fetch(`${LATE_API_BASE}${path}`, {
     method,
@@ -164,9 +164,9 @@ export async function publishToSns(opts: {
 }): Promise<LatePostResponse | null> {
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.error("[publish-sns] LATE_API_KEY가 설정되지 않았습니다.");
+    console.error("[publish-sns] GETLATE_API_KEY가 설정되지 않았습니다.");
     console.error(
-      "[publish-sns] .env.local에 LATE_API_KEY=... 형태로 추가하세요."
+      "[publish-sns] .env.local에 GETLATE_API_KEY=... 형태로 추가하세요."
     );
     console.error(
       "[publish-sns] API 키 발급: https://getlate.dev 대시보드 > API Keys"

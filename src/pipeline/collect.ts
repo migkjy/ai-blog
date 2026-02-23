@@ -1,5 +1,5 @@
 import Parser from "rss-parser";
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 
 // --- RSS Feed Sources (from content-strategy.md) ---
 
@@ -271,29 +271,35 @@ export async function collectNews(): Promise<CollectedItem[]> {
   return deduped;
 }
 
+function getContentDb() {
+  return createClient({
+    url: process.env.CONTENT_OS_DB_URL!,
+    authToken: process.env.CONTENT_OS_DB_TOKEN!,
+  });
+}
+
 /**
  * Save collected news to DB. Returns count of newly inserted items.
  */
 export async function saveCollectedNews(
   items: CollectedItem[]
 ): Promise<number> {
-  if (!process.env.DATABASE_URL) {
-    console.error("[collect] DATABASE_URL not set");
+  if (!process.env.CONTENT_OS_DB_URL) {
+    console.error("[collect] CONTENT_OS_DB_URL not set");
     return 0;
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  const db = getContentDb();
   let saved = 0;
 
   for (const item of items) {
     if (!item.url) continue;
     const normalizedUrl = normalizeUrl(item.url);
     try {
-      await sql`
-        INSERT INTO collected_news (title, url, source, summary, content_snippet, published_at)
-        VALUES (${item.title}, ${normalizedUrl}, ${item.source}, ${item.summary}, ${item.content_snippet}, ${item.published_at?.toISOString() || null})
-        ON CONFLICT (url) DO NOTHING
-      `;
+      await db.execute({
+        sql: 'INSERT INTO collected_news (title, url, source, summary, content_snippet, published_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (url) DO NOTHING',
+        args: [item.title, normalizedUrl, item.source, item.summary, item.content_snippet, item.published_at?.toISOString() || null],
+      });
       saved++;
     } catch {
       // Duplicate URL, skip silently
@@ -311,57 +317,56 @@ export async function getUnusedNews(
   limit: number = 10,
   lang?: "en" | "ko"
 ): Promise<CollectedItem[]> {
-  if (!process.env.DATABASE_URL) {
-    console.error("[collect] DATABASE_URL not set");
+  if (!process.env.CONTENT_OS_DB_URL) {
+    console.error("[collect] CONTENT_OS_DB_URL not set");
     return [];
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  const db = getContentDb();
 
   if (lang) {
-    // Filter by source language using source name heuristic
     const koSources = RSS_FEEDS.filter((f) => f.lang === "ko").map((f) => f.name);
+    if (koSources.length === 0) {
+      const result = await db.execute({
+        sql: 'SELECT title, url, source, summary, content_snippet, published_at FROM collected_news WHERE used_in_newsletter = 0 ORDER BY published_at DESC LIMIT ?',
+        args: [limit],
+      });
+      return result.rows as unknown as CollectedItem[];
+    }
+
+    const placeholders = koSources.map(() => '?').join(', ');
+
     if (lang === "ko") {
-      const rows = await sql`
-        SELECT title, url, source, summary, content_snippet, published_at
-        FROM collected_news
-        WHERE used_in_newsletter = false
-          AND source = ANY(${koSources})
-        ORDER BY published_at DESC NULLS LAST
-        LIMIT ${limit}
-      `;
-      return rows as CollectedItem[];
+      const result = await db.execute({
+        sql: `SELECT title, url, source, summary, content_snippet, published_at FROM collected_news WHERE used_in_newsletter = 0 AND source IN (${placeholders}) ORDER BY published_at DESC LIMIT ?`,
+        args: [...koSources, limit],
+      });
+      return result.rows as unknown as CollectedItem[];
     } else {
-      const rows = await sql`
-        SELECT title, url, source, summary, content_snippet, published_at
-        FROM collected_news
-        WHERE used_in_newsletter = false
-          AND NOT (source = ANY(${koSources}))
-        ORDER BY published_at DESC NULLS LAST
-        LIMIT ${limit}
-      `;
-      return rows as CollectedItem[];
+      const result = await db.execute({
+        sql: `SELECT title, url, source, summary, content_snippet, published_at FROM collected_news WHERE used_in_newsletter = 0 AND source NOT IN (${placeholders}) ORDER BY published_at DESC LIMIT ?`,
+        args: [...koSources, limit],
+      });
+      return result.rows as unknown as CollectedItem[];
     }
   }
 
-  const rows = await sql`
-    SELECT title, url, source, summary, content_snippet, published_at
-    FROM collected_news
-    WHERE used_in_newsletter = false
-    ORDER BY published_at DESC NULLS LAST
-    LIMIT ${limit}
-  `;
-  return rows as CollectedItem[];
+  const result = await db.execute({
+    sql: 'SELECT title, url, source, summary, content_snippet, published_at FROM collected_news WHERE used_in_newsletter = 0 ORDER BY published_at DESC LIMIT ?',
+    args: [limit],
+  });
+  return result.rows as unknown as CollectedItem[];
 }
 
 export async function markNewsAsUsed(urls: string[]): Promise<void> {
-  if (!process.env.DATABASE_URL || urls.length === 0) return;
+  if (!process.env.CONTENT_OS_DB_URL || urls.length === 0) return;
 
-  const sql = neon(process.env.DATABASE_URL);
-  await sql`
-    UPDATE collected_news SET used_in_newsletter = true
-    WHERE url = ANY(${urls})
-  `;
+  const db = getContentDb();
+  const placeholders = urls.map(() => '?').join(', ');
+  await db.execute({
+    sql: `UPDATE collected_news SET used_in_newsletter = 1 WHERE url IN (${placeholders})`,
+    args: urls,
+  });
 }
 
 // CLI entry point

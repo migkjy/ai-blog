@@ -1,6 +1,9 @@
-import { neon } from '@neondatabase/serverless';
+import { createClient } from '@libsql/client';
 
-const sql = neon(process.env.DATABASE_URL!);
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_DB_TOKEN!,
+});
 
 export interface BlogPost {
   id: string;
@@ -19,92 +22,78 @@ export interface BlogPost {
 }
 
 export async function getPublishedPosts(): Promise<BlogPost[]> {
-  const rows = await sql`
-    SELECT * FROM blog_posts
-    WHERE published = true
-    ORDER BY published_at DESC NULLS LAST, created_at DESC
-  `;
-  return rows as BlogPost[];
+  const result = await client.execute({
+    sql: 'SELECT * FROM blog_posts WHERE published = 1 ORDER BY published_at DESC, created_at DESC',
+    args: [],
+  });
+  return result.rows as unknown as BlogPost[];
 }
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
-  const rows = await sql`
-    SELECT * FROM blog_posts
-    WHERE slug = ${slug} AND published = true
-    LIMIT 1
-  `;
-  return (rows[0] as BlogPost) ?? null;
+  const result = await client.execute({
+    sql: 'SELECT * FROM blog_posts WHERE slug = ? AND published = 1 LIMIT 1',
+    args: [slug],
+  });
+  return (result.rows[0] as unknown as BlogPost) ?? null;
 }
 
 export async function getAllSlugs(): Promise<string[]> {
-  const rows = await sql`
-    SELECT slug FROM blog_posts WHERE published = true
-  `;
-  return rows.map((r) => r.slug as string);
+  const result = await client.execute({
+    sql: 'SELECT slug FROM blog_posts WHERE published = 1',
+    args: [],
+  });
+  return result.rows.map((r) => r.slug as string);
 }
 
 export async function getCategories(): Promise<{ category: string; count: number }[]> {
-  const rows = await sql`
-    SELECT category, COUNT(*)::int as count
-    FROM blog_posts
-    WHERE published = true AND category IS NOT NULL
-    GROUP BY category
-    ORDER BY count DESC
-  `;
-  return rows as { category: string; count: number }[];
+  const result = await client.execute({
+    sql: 'SELECT category, COUNT(*) as count FROM blog_posts WHERE published = 1 AND category IS NOT NULL GROUP BY category ORDER BY count DESC',
+    args: [],
+  });
+  return result.rows as unknown as { category: string; count: number }[];
 }
 
 export async function getPostsByCategory(category: string): Promise<BlogPost[]> {
-  const rows = await sql`
-    SELECT * FROM blog_posts
-    WHERE published = true AND category = ${category}
-    ORDER BY published_at DESC NULLS LAST, created_at DESC
-  `;
-  return rows as BlogPost[];
+  const result = await client.execute({
+    sql: 'SELECT * FROM blog_posts WHERE published = 1 AND category = ? ORDER BY published_at DESC, created_at DESC',
+    args: [category],
+  });
+  return result.rows as unknown as BlogPost[];
 }
 
 export async function getRelatedPosts(slug: string, category: string, limit: number = 3): Promise<BlogPost[]> {
-  const rows = await sql`
-    SELECT * FROM blog_posts
-    WHERE published = true AND category = ${category} AND slug != ${slug}
-    ORDER BY published_at DESC NULLS LAST
-    LIMIT ${limit}
-  `;
-  return rows as BlogPost[];
+  const result = await client.execute({
+    sql: 'SELECT * FROM blog_posts WHERE published = 1 AND category = ? AND slug != ? ORDER BY published_at DESC LIMIT ?',
+    args: [category, slug, limit],
+  });
+  return result.rows as unknown as BlogPost[];
 }
 
 export async function getAdjacentPosts(slug: string): Promise<{
   prev: Pick<BlogPost, 'title' | 'slug'> | null;
   next: Pick<BlogPost, 'title' | 'slug'> | null;
 }> {
-  const current = await sql`
-    SELECT published_at, created_at FROM blog_posts
-    WHERE slug = ${slug} AND published = true
-    LIMIT 1
-  `;
-  if (current.length === 0) return { prev: null, next: null };
+  const current = await client.execute({
+    sql: 'SELECT published_at, created_at FROM blog_posts WHERE slug = ? AND published = 1 LIMIT 1',
+    args: [slug],
+  });
+  if (current.rows.length === 0) return { prev: null, next: null };
 
-  const publishedAt = current[0].published_at ?? current[0].created_at;
+  const publishedAt = current.rows[0].published_at ?? current.rows[0].created_at;
 
-  const [prevRows, nextRows] = await Promise.all([
-    sql`
-      SELECT title, slug FROM blog_posts
-      WHERE published = true
-        AND COALESCE(published_at, created_at) < ${publishedAt}
-      ORDER BY COALESCE(published_at, created_at) DESC
-      LIMIT 1
-    `,
-    sql`
-      SELECT title, slug FROM blog_posts
-      WHERE published = true
-        AND COALESCE(published_at, created_at) > ${publishedAt}
-      ORDER BY COALESCE(published_at, created_at) ASC
-      LIMIT 1
-    `,
+  const [prevResult, nextResult] = await Promise.all([
+    client.execute({
+      sql: 'SELECT title, slug FROM blog_posts WHERE published = 1 AND COALESCE(published_at, created_at) < ? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 1',
+      args: [publishedAt as string],
+    }),
+    client.execute({
+      sql: 'SELECT title, slug FROM blog_posts WHERE published = 1 AND COALESCE(published_at, created_at) > ? ORDER BY COALESCE(published_at, created_at) ASC LIMIT 1',
+      args: [publishedAt as string],
+    }),
   ]);
 
   return {
-    prev: prevRows.length > 0 ? (prevRows[0] as Pick<BlogPost, 'title' | 'slug'>) : null,
-    next: nextRows.length > 0 ? (nextRows[0] as Pick<BlogPost, 'title' | 'slug'>) : null,
+    prev: prevResult.rows.length > 0 ? (prevResult.rows[0] as unknown as Pick<BlogPost, 'title' | 'slug'>) : null,
+    next: nextResult.rows.length > 0 ? (nextResult.rows[0] as unknown as Pick<BlogPost, 'title' | 'slug'>) : null,
   };
 }

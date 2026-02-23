@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 import { getUnusedNews, markNewsAsUsed } from "./collect";
 
 const PROMPT_PATH = join(process.cwd(), "prompts", "newsletter.md");
@@ -228,29 +228,24 @@ ${newsSection}
 }
 \`\`\``;
 
-  // 4. Call Claude API
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log("[generate] ANTHROPIC_API_KEY not set. Generating mock newsletter.");
+  // 4. Call Gemini API
+  if (!process.env.GOOGLE_API_KEY) {
+    console.log("[generate] GOOGLE_API_KEY not set. Generating mock newsletter.");
     return generateMockNewsletter(news);
   }
 
   try {
-    console.log("[generate] Calling Claude Sonnet API...");
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    console.log("[generate] Calling Gemini Flash API...");
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 4096,
-      messages: [{ role: "user", content: fullPrompt }],
-    });
-
-    const responseText =
-      message.content[0].type === "text" ? message.content[0].text : "";
+    const geminiResult = await model.generateContent(fullPrompt);
+    const responseText = geminiResult.response.text();
 
     // Parse JSON from response
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) {
-      console.error("[generate] Failed to parse JSON from Claude response");
+      console.error("[generate] Failed to parse JSON from Gemini response");
       console.error("[generate] Raw response (first 500 chars):", responseText.slice(0, 500));
       return generateMockNewsletter(news);
     }
@@ -267,7 +262,7 @@ ${newsSection}
     console.log(`[generate] HTML length: ${result.html_content.length} chars`);
     return result;
   } catch (err) {
-    console.error("[generate] Claude API error:", err);
+    console.error("[generate] Gemini API error:", err);
     return generateMockNewsletter(news);
   }
 }
@@ -348,7 +343,7 @@ ${newsSummaryHtml}
 </p>
 
 <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;font-style:italic;">
-  이 뉴스레터는 ANTHROPIC_API_KEY가 설정되면 AI가 자동으로 고품질 콘텐츠를 생성합니다. 현재는 미리보기 버전입니다.
+  이 뉴스레터는 GOOGLE_API_KEY가 설정되면 AI가 자동으로 고품질 콘텐츠를 생성합니다. 현재는 미리보기 버전입니다.
 </p>`;
 
   // Build plain text version
@@ -390,19 +385,21 @@ AI AppPro - 소상공인을 위한 AI 활용 가이드`;
 export async function saveNewsletter(
   newsletter: GeneratedNewsletter
 ): Promise<string | null> {
-  if (!process.env.DATABASE_URL) {
-    console.error("[generate] DATABASE_URL not set");
+  if (!process.env.CONTENT_OS_DB_URL) {
+    console.error("[generate] CONTENT_OS_DB_URL not set");
     return null;
   }
 
-  const sql = neon(process.env.DATABASE_URL);
-  const rows = await sql`
-    INSERT INTO newsletters (subject, html_content, plain_content, status)
-    VALUES (${newsletter.subject}, ${newsletter.html_content}, ${newsletter.plain_content}, 'draft')
-    RETURNING id
-  `;
+  const db = createClient({
+    url: process.env.CONTENT_OS_DB_URL!,
+    authToken: process.env.CONTENT_OS_DB_TOKEN!,
+  });
+  const result = await db.execute({
+    sql: 'INSERT INTO newsletters (subject, html_content, plain_content, status) VALUES (?, ?, ?, ?) RETURNING id',
+    args: [newsletter.subject, newsletter.html_content, newsletter.plain_content, 'draft'],
+  });
 
-  const id = rows[0]?.id as string;
+  const id = result.rows[0]?.id as string;
   console.log(`[generate] Newsletter saved with id: ${id}`);
 
   // Mark news as used

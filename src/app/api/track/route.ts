@@ -1,7 +1,10 @@
-import { neon } from '@neondatabase/serverless';
+import { createClient } from '@libsql/client';
 import { NextRequest, NextResponse } from 'next/server';
 
-const sql = neon(process.env.DATABASE_URL!);
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_DB_TOKEN!,
+});
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,10 +16,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    await sql`
-      INSERT INTO page_views (site, path, user_agent, referrer)
-      VALUES ('blog', ${path || '/'}, ${userAgent}, ${referrer})
-    `;
+    await client.execute({
+      sql: "INSERT INTO page_views (site, path, user_agent, referrer) VALUES ('blog', ?, ?, ?)",
+      args: [path || '/', userAgent, referrer],
+    });
 
     return NextResponse.json({ ok: true });
   } catch {

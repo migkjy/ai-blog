@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -350,7 +350,7 @@ ${topic}은 더 이상 대기업만의 영역이 아닙니다. 소상공인도 �
     tags: [category, "AI활용", "소상공인", "자동화", "생산성"],
   };
 
-  console.log("[generate-blog] ANTHROPIC_API_KEY 미설정. Mock 블로그 포스트를 생성합니다.");
+  console.log("[generate-blog] GOOGLE_API_KEY 미설정. Mock 블로그 포스트를 생성합니다.");
   console.log(`[generate-blog] Mock 생성 완료: "${result.title}"`);
   console.log(`[generate-blog] 본문 길이: ${result.content.length}자, 카테고리: ${result.category}`);
 
@@ -368,7 +368,7 @@ export async function generateBlogPost(
   pillar?: ContentPillar,
   newsContext?: string
 ): Promise<GeneratedBlogPost | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GOOGLE_API_KEY) {
     return generateMockBlogPost(topic, pillar, newsContext);
   }
 
@@ -391,24 +391,21 @@ export async function generateBlogPost(
   }
 
   try {
-    console.log(`[generate-blog] Claude API 호출 중... (필라: ${pillar || "미지정"})`);
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 8192,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+    console.log(`[generate-blog] Gemini Flash API 호출 중... (필라: ${pillar || "미지정"})`);
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      systemInstruction: systemPrompt,
     });
 
-    const responseText =
-      message.content[0].type === "text" ? message.content[0].text : "";
+    const geminiResult = await model.generateContent(userPrompt);
+    const responseText = geminiResult.response.text();
 
     // Parse JSON from response — handle multiline string values
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) {
       console.error(
-        "[generate-blog] Claude 응답에서 JSON을 파싱할 수 없습니다."
+        "[generate-blog] Gemini 응답에서 JSON을 파싱할 수 없습니다."
       );
       console.error(
         "[generate-blog] 응답 (처음 500자):",
@@ -417,49 +414,107 @@ export async function generateBlogPost(
       return null;
     }
 
-    // Fix unescaped newlines inside JSON string values
+    // Fix unescaped newlines inside JSON string values using a state machine
     let rawJson = jsonMatch[1];
-    // Replace literal newlines inside strings with escaped \n
-    rawJson = rawJson.replace(/(?<=: "(?:[^"\\]|\\.)*)(\n)(?=(?:[^"\\]|\\.)*")/g, "\\n");
+
+    /**
+     * Escape literal newlines that appear inside JSON string values.
+     * Walks character by character tracking whether we're inside a string.
+     */
+    function escapeNewlinesInJsonStrings(src: string): string {
+      let out = "";
+      let inString = false;
+      for (let i = 0; i < src.length; i++) {
+        const ch = src[i];
+        if (inString) {
+          if (ch === "\\" && i + 1 < src.length) {
+            // Keep escape sequences as-is
+            out += ch + src[i + 1];
+            i++;
+          } else if (ch === '"') {
+            out += ch;
+            inString = false;
+          } else if (ch === "\n") {
+            out += "\\n";
+          } else if (ch === "\r") {
+            out += "\\r";
+          } else if (ch === "\t") {
+            out += "\\t";
+          } else {
+            out += ch;
+          }
+        } else {
+          if (ch === '"') {
+            inString = true;
+          }
+          out += ch;
+        }
+      }
+      return out;
+    }
 
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(rawJson);
     } catch {
-      // Fallback: extract fields individually with regex
-      console.warn("[generate-blog] JSON 직접 파싱 실패, 필드별 추출 시도...");
-      const extractField = (name: string): string => {
-        const re = new RegExp(`"${name}"\\s*:\\s*"([\\s\\S]*?)(?:(?<!\\\\)")`, "m");
-        const m = rawJson.match(re);
-        return m ? m[1].replace(/\n/g, "\\n") : "";
-      };
-      const extractArray = (name: string): string[] => {
-        const re = new RegExp(`"${name}"\\s*:\\s*\\[([^\\]]*?)\\]`);
-        const m = rawJson.match(re);
-        if (!m) return [];
-        return m[1].match(/"([^"]*)"/g)?.map((s: string) => s.replace(/"/g, "")) || [];
-      };
-
-      // Try re-parsing with escaped newlines in all string values
-      const fixedJson = rawJson.replace(
-        /"((?:[^"\\]|\\.)*)"/g,
-        (match: string) => {
-          try {
-            JSON.parse(match);
-            return match;
-          } catch {
-            return match.replace(/(?<!\\)\n/g, "\\n");
-          }
-        }
-      );
-
+      // Fix newlines inside string values and retry
+      console.warn("[generate-blog] JSON 직접 파싱 실패, 문자열 내 개행 이스케이프 후 재시도...");
+      const fixedJson = escapeNewlinesInJsonStrings(rawJson);
       try {
         parsed = JSON.parse(fixedJson);
       } catch {
+        // Last resort: extract fields by scanning for key-value pairs
+        console.warn("[generate-blog] 이스케이프 후에도 실패, 필드별 추출 시도...");
+
+        /**
+         * Extract a string field value by scanning for the closing quote,
+         * properly handling escape sequences.
+         */
+        const extractField = (name: string): string => {
+          const startMarker = `"${name}"`;
+          const startIdx = rawJson.indexOf(startMarker);
+          if (startIdx === -1) return "";
+
+          // Find the colon, then the opening quote of the value
+          const colonIdx = rawJson.indexOf(":", startIdx + startMarker.length);
+          if (colonIdx === -1) return "";
+          const valueStart = rawJson.indexOf('"', colonIdx + 1);
+          if (valueStart === -1) return "";
+
+          // Scan for the closing quote (skip escaped characters)
+          let i = valueStart + 1;
+          let result = "";
+          while (i < rawJson.length) {
+            if (rawJson[i] === "\\" && i + 1 < rawJson.length) {
+              result += rawJson[i] + rawJson[i + 1];
+              i += 2;
+            } else if (rawJson[i] === '"') {
+              break;
+            } else {
+              result += rawJson[i];
+              i++;
+            }
+          }
+          // Unescape standard JSON escapes
+          return result
+            .replace(/\\n/g, "\n")
+            .replace(/\\r/g, "\r")
+            .replace(/\\t/g, "\t")
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, "\\");
+        };
+
+        const extractArray = (name: string): string[] => {
+          const re = new RegExp(`"${name}"\\s*:\\s*\\[([^\\]]*?)\\]`);
+          const m = rawJson.match(re);
+          if (!m) return [];
+          return m[1].match(/"([^"]*)"/g)?.map((s: string) => s.replace(/"/g, "")) || [];
+        };
+
         parsed = {
           title: extractField("title"),
           slug: extractField("slug"),
-          content: extractField("content").replace(/\\n/g, "\n"),
+          content: extractField("content"),
           excerpt: extractField("excerpt"),
           meta_description: extractField("meta_description"),
           category: extractField("category"),
@@ -501,7 +556,7 @@ export async function generateBlogPost(
 
     return result;
   } catch (err) {
-    console.error("[generate-blog] Claude API 오류:", err);
+    console.error("[generate-blog] Gemini API 오류:", err);
     return null;
   }
 }

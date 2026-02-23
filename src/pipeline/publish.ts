@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 import { sendNewsletter, getStibeeStatus } from "../lib/stibee";
 import { publishToSns, getGetlateStatus } from "../lib/getlate";
 
@@ -13,6 +13,20 @@ interface Newsletter {
   html_content: string;
   plain_content: string | null;
   status: string;
+}
+
+function getContentDb() {
+  return createClient({
+    url: process.env.CONTENT_OS_DB_URL!,
+    authToken: process.env.CONTENT_OS_DB_TOKEN!,
+  });
+}
+
+function getBlogDb() {
+  return createClient({
+    url: process.env.TURSO_DB_URL!,
+    authToken: process.env.TURSO_DB_TOKEN!,
+  });
 }
 
 function loadTemplate(): string | null {
@@ -86,20 +100,20 @@ function applyTemplate(
 export async function sendViaStibee(
   newsletterId: string
 ): Promise<boolean> {
-  if (!process.env.DATABASE_URL) {
-    console.error("[publish] DATABASE_URL not set");
+  if (!process.env.CONTENT_OS_DB_URL) {
+    console.error("[publish] CONTENT_OS_DB_URL not set");
     return false;
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  const db = getContentDb();
 
   // 1. Get newsletter from DB
-  const rows = await sql`
-    SELECT id, subject, html_content, plain_content, status
-    FROM newsletters WHERE id = ${newsletterId}
-  `;
+  const result = await db.execute({
+    sql: 'SELECT id, subject, html_content, plain_content, status FROM newsletters WHERE id = ?',
+    args: [newsletterId],
+  });
 
-  const newsletter = rows[0] as Newsletter | undefined;
+  const newsletter = result.rows[0] as unknown as Newsletter | undefined;
   if (!newsletter) {
     console.error(`[publish] Newsletter not found: ${newsletterId}`);
     return false;
@@ -124,55 +138,57 @@ export async function sendViaStibee(
   const stibeeStatus = getStibeeStatus();
   console.log(`[publish] Stibee mode: ${stibeeStatus.mode}`);
 
-  const result = await sendNewsletter({
+  const sendResult = await sendNewsletter({
     listId: STIBEE_LIST_ID,
     subject: newsletter.subject,
     htmlContent: finalHtml,
     plainContent: newsletter.plain_content || undefined,
   });
 
-  if (result.mock) {
+  if (sendResult.mock) {
     // Mock mode: mark as ready
-    await sql`
-      UPDATE newsletters SET status = 'ready', sent_at = now()
-      WHERE id = ${newsletterId}
-    `;
+    await db.execute({
+      sql: "UPDATE newsletters SET status = 'ready', sent_at = datetime('now') WHERE id = ?",
+      args: [newsletterId],
+    });
     console.log("[publish] Mock mode. Newsletter marked as 'ready'.");
     console.log("[publish] Set STIBEE_API_KEY and STIBEE_LIST_ID to enable sending.");
     return false;
   }
 
-  if (result.success && result.emailId) {
+  if (sendResult.success && sendResult.emailId) {
     // Real send: update status
-    await sql`
-      UPDATE newsletters SET status = 'sent', stibee_email_id = ${String(result.emailId)}, sent_at = now()
-      WHERE id = ${newsletterId}
-    `;
+    await db.execute({
+      sql: "UPDATE newsletters SET status = 'sent', stibee_email_id = ?, sent_at = datetime('now') WHERE id = ?",
+      args: [String(sendResult.emailId), newsletterId],
+    });
     console.log(
-      `[publish] Newsletter sent via Stibee. Email ID: ${result.emailId}`
+      `[publish] Newsletter sent via Stibee. Email ID: ${sendResult.emailId}`
     );
     return true;
   }
 
-  console.error(`[publish] Stibee send failed: ${result.error}`);
+  console.error(`[publish] Stibee send failed: ${sendResult.error}`);
   return false;
 }
 
 export async function publishToBlog(
   newsletterId: string
 ): Promise<boolean> {
-  if (!process.env.DATABASE_URL) {
-    console.error("[publish] DATABASE_URL not set");
+  if (!process.env.CONTENT_OS_DB_URL) {
+    console.error("[publish] CONTENT_OS_DB_URL not set");
     return false;
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  const contentDb = getContentDb();
+  const blogDb = getBlogDb();
 
   // Get newsletter
-  const rows = await sql`
-    SELECT subject, html_content, plain_content FROM newsletters WHERE id = ${newsletterId}
-  `;
-  const newsletter = rows[0];
+  const result = await contentDb.execute({
+    sql: 'SELECT subject, html_content, plain_content FROM newsletters WHERE id = ?',
+    args: [newsletterId],
+  });
+  const newsletter = result.rows[0];
   if (!newsletter) return false;
 
   // Generate slug from subject
@@ -188,22 +204,15 @@ export async function publishToBlog(
   const finalSlug = `newsletter-${today}-${slug || "weekly"}`;
 
   try {
-    await sql`
-      INSERT INTO blog_posts (title, slug, content, excerpt, category, tags, author, published, published_at, meta_description)
-      VALUES (
-        ${newsletter.subject},
-        ${finalSlug},
-        ${newsletter.plain_content || newsletter.html_content},
-        ${(newsletter.plain_content as string)?.slice(0, 200) || "주간 AI 브리핑"},
-        '주간 AI 브리핑',
-        ${["뉴스레터", "AI트렌드", "주간브리핑"]},
-        'AI AppPro',
-        true,
-        now(),
-        ${`${newsletter.subject} - AI AppPro 주간 뉴스레터`}
-      )
-      ON CONFLICT (slug) DO NOTHING
-    `;
+    const content = (newsletter.plain_content as string) || (newsletter.html_content as string);
+    const excerpt = (newsletter.plain_content as string)?.slice(0, 200) || "주간 AI 브리핑";
+    const tags = JSON.stringify(["뉴스레터", "AI트렌드", "주간브리핑"]);
+    const metaDesc = `${newsletter.subject} - AI AppPro 주간 뉴스레터`;
+
+    await blogDb.execute({
+      sql: "INSERT INTO blog_posts (title, slug, content, excerpt, category, tags, author, published, published_at, meta_description) VALUES (?, ?, ?, ?, '주간 AI 브리핑', ?, 'AI AppPro', 1, datetime('now'), ?) ON CONFLICT (slug) DO NOTHING",
+      args: [newsletter.subject as string, finalSlug, content, excerpt, tags, metaDesc],
+    });
     console.log(`[publish] Blog post created: ${finalSlug}`);
     return true;
   } catch (err) {
@@ -216,8 +225,8 @@ export async function publishToSnsViaGetlate(
   newsletterId: string,
   blogUrl?: string
 ): Promise<boolean> {
-  if (!process.env.DATABASE_URL) {
-    console.error("[publish] DATABASE_URL not set");
+  if (!process.env.CONTENT_OS_DB_URL) {
+    console.error("[publish] CONTENT_OS_DB_URL not set");
     return false;
   }
 
@@ -229,37 +238,38 @@ export async function publishToSnsViaGetlate(
     return false;
   }
 
-  const sql = neon(process.env.DATABASE_URL);
-  const rows = await sql`
-    SELECT subject, plain_content FROM newsletters WHERE id = ${newsletterId}
-  `;
-  const newsletter = rows[0];
+  const db = getContentDb();
+  const result = await db.execute({
+    sql: 'SELECT subject, plain_content FROM newsletters WHERE id = ?',
+    args: [newsletterId],
+  });
+  const newsletter = result.rows[0];
   if (!newsletter) return false;
 
   // SNS용 짧은 요약 콘텐츠 생성 (plain_content 앞 200자)
-  const summary = (newsletter.plain_content as string)?.slice(0, 200) || newsletter.subject;
+  const summary = (newsletter.plain_content as string)?.slice(0, 200) || (newsletter.subject as string);
   const snsContent = `[AI AppPro 주간 브리핑]\n${newsletter.subject}\n\n${summary}`;
 
-  const result = await publishToSns({
+  const snsResult = await publishToSns({
     content: snsContent,
     blogUrl,
     publishNow: true,
   });
 
-  if (result.mock) {
+  if (snsResult.mock) {
     console.log("[publish] getlate mock 모드 — SNS 배포 스킵.");
     return false;
   }
 
-  if (result.success) {
-    console.log(`[publish] SNS 배포 완료. Post ID: ${result.postId}, 계정 수: ${result.accountCount}`);
+  if (snsResult.success) {
+    console.log(`[publish] SNS 배포 완료. Post ID: ${snsResult.postId}, 계정 수: ${snsResult.accountCount}`);
     return true;
   }
 
-  if (result.error === 'NO_ACCOUNTS') {
+  if (snsResult.error === 'NO_ACCOUNTS') {
     console.log("[publish] getlate에 연결된 SNS 계정 없음. getlate.dev에서 계정 연결 필요.");
   } else {
-    console.error(`[publish] SNS 배포 실패: ${result.error}`);
+    console.error(`[publish] SNS 배포 실패: ${snsResult.error}`);
   }
   return false;
 }
@@ -270,20 +280,20 @@ if (process.argv[1]?.includes("publish")) {
   if (!newsletterId) {
     // If no ID provided, get the latest draft
     (async () => {
-      if (!process.env.DATABASE_URL) {
-        console.error("DATABASE_URL not set");
+      if (!process.env.CONTENT_OS_DB_URL) {
+        console.error("CONTENT_OS_DB_URL not set");
         process.exit(1);
       }
-      const sql = neon(process.env.DATABASE_URL);
-      const rows = await sql`
-        SELECT id, subject, status FROM newsletters
-        ORDER BY created_at DESC LIMIT 1
-      `;
-      if (rows.length === 0) {
+      const db = getContentDb();
+      const result = await db.execute({
+        sql: 'SELECT id, subject, status FROM newsletters ORDER BY created_at DESC LIMIT 1',
+        args: [],
+      });
+      if (result.rows.length === 0) {
         console.error("No newsletters found. Run generate first.");
         process.exit(1);
       }
-      const latest = rows[0];
+      const latest = result.rows[0];
       console.log(
         `[publish] Using latest newsletter: ${latest.id} ("${latest.subject}", status: ${latest.status})`
       );

@@ -1,6 +1,6 @@
 "use server";
 
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 
 interface SubscribeResult {
   success: boolean;
@@ -26,12 +26,14 @@ export async function subscribeAction(
   }
 
   try {
-    const sql = neon(process.env.DATABASE_URL!);
-    await sql`
-      INSERT INTO subscribers (email, source)
-      VALUES (${email}, 'blog')
-      ON CONFLICT (email) DO NOTHING
-    `;
+    const client = createClient({
+      url: process.env.TURSO_DB_URL!,
+      authToken: process.env.TURSO_DB_TOKEN!,
+    });
+    await client.execute({
+      sql: "INSERT INTO subscribers (email, source) VALUES (?, 'blog') ON CONFLICT (email) DO NOTHING",
+      args: [email],
+    });
     return { success: true, message: "구독 완료! 매주 AI 트렌드를 보내드릴게요." };
   } catch {
     return { success: false, message: "오류가 발생했습니다. 잠시 후 다시 시도해주세요." };

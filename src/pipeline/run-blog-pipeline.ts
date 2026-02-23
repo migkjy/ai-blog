@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 import { collectNews, saveCollectedNews, getUnusedNews } from "./collect";
 import {
   generateBlogPost,
@@ -13,18 +13,33 @@ const MAX_RETRIES = 2;
 
 // --- Helpers ---
 
-async function getTodayPostCount(): Promise<number> {
-  if (!process.env.DATABASE_URL) return 0;
+function getTursoClient() {
+  const url = process.env.TURSO_DB_URL;
+  const authToken = process.env.TURSO_DB_TOKEN;
+  if (!url || !authToken) return null;
+  return createClient({ url, authToken });
+}
 
-  const sql = neon(process.env.DATABASE_URL);
-  const rows = await sql`
-    SELECT count(*)::int as cnt
-    FROM blog_posts
-    WHERE published_at >= CURRENT_DATE
-      AND published_at < CURRENT_DATE + INTERVAL '1 day'
-      AND author = 'AI AppPro'
-  `;
-  return (rows[0]?.cnt as number) || 0;
+async function getTodayPostCount(): Promise<number> {
+  const client = getTursoClient();
+  if (!client) return 0;
+
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const result = await client.execute({
+      sql: `SELECT count(*) as cnt FROM blog_posts
+            WHERE publishedAt >= ? AND publishedAt <= ?
+            AND author = 'AI AppPro'`,
+      args: [todayStart.getTime(), todayEnd.getTime()],
+    });
+    return Number(result.rows[0]?.cnt) || 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -44,7 +59,7 @@ function buildNewsContext(
 // --- Pipeline ---
 
 async function runBlogPipeline() {
-  console.log("=== Blog Auto-Generation Pipeline v2 ===");
+  console.log("=== Blog Auto-Generation Pipeline v2 (Turso) ===");
   console.log(`Started at: ${new Date().toISOString()}`);
   console.log(`Daily limit: ${DAILY_LIMIT} post(s)\n`);
 
