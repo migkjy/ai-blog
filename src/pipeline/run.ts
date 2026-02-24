@@ -1,6 +1,6 @@
 import { collectNews, saveCollectedNews } from "./collect";
 import { generateNewsletter, saveNewsletter } from "./generate";
-import { sendViaStibee, publishToBlog, publishToSnsViaGetlate } from "./publish";
+import { publishToBlog, publishToSnsViaGetlate, sendViaBrevo } from "./publish";
 
 async function runPipeline() {
   console.log("=== AI Newsletter Pipeline ===");
@@ -26,15 +26,17 @@ async function runPipeline() {
   }
   console.log(`Newsletter saved: ${newsletterId}\n`);
 
-  // Step 3: Publish
-  console.log("--- Step 3: Publish ---");
-  const sent = await sendViaStibee(newsletterId);
-  if (sent) {
-    console.log("Newsletter sent via Stibee.");
+  // Step 3: Brevo 이메일 캠페인 발송
+  console.log("--- Step 3: Brevo Email Campaign ---");
+  const emailSent = await sendViaBrevo(newsletterId);
+  if (emailSent) {
+    console.log("Newsletter sent via Brevo email campaign.");
   } else {
-    console.log("Stibee send skipped (API key not set or error).");
+    console.log("Brevo email campaign skipped (not configured or mock mode).");
   }
 
+  // Step 4: Publish to Blog
+  console.log("--- Step 4: Publish to Blog ---");
   const blogged = await publishToBlog(newsletterId);
   if (blogged) {
     console.log("Newsletter published to blog.");
@@ -42,8 +44,8 @@ async function runPipeline() {
     console.log("Blog publish skipped or failed.");
   }
 
-  // Step 4: SNS 배포 (getlate.dev)
-  console.log("--- Step 4: SNS Publish (getlate.dev) ---");
+  // Step 5: SNS 배포 (getlate.dev)
+  console.log("--- Step 5: SNS Publish (getlate.dev) ---");
   const snsPublished = await publishToSnsViaGetlate(newsletterId);
   if (snsPublished) {
     console.log("Newsletter published to SNS via getlate.dev.");

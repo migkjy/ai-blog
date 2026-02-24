@@ -30,7 +30,7 @@ NeonDB 대비 추가 컬럼: `lang`, `grade`, `category` — 기존 코드에서
 
 ### 2. newsletters
 
-AI가 생성한 뉴스레터. `generate.ts`에서 INSERT, `publish.ts`에서 Stibee 발송 후 status/stibee_email_id 업데이트.
+AI가 생성한 뉴스레터. `generate.ts`에서 INSERT, `publish.ts`에서 발송 후 status 업데이트.
 
 ### 3. content_queue
 
@@ -45,7 +45,7 @@ AI가 생성한 뉴스레터. `generate.ts`에서 INSERT, `publish.ts`에서 Sti
 모든 콘텐츠 발행 이벤트를 기록. **Operations OS(칸반)가 이 테이블을 읽어 OKR KR 자동 갱신**에 사용.
 
 - `metrics`: JSON 형태로 조회수, 클릭수, 구독자수 등 저장
-- `platform`: 발행 플랫폼 (blog.apppro.kr, stibee, twitter, linkedin 등)
+- `platform`: 발행 플랫폼 (blog.apppro.kr, brevo, getlate, twitter, linkedin 등)
 
 ### 5. pipeline_logs
 

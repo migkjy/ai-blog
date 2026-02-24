@@ -20,6 +20,7 @@
     "publish:sns": "tsx src/pipeline/publish-sns.ts"
   },
   "dependencies": {
+    "@getbrevo/brevo": "^4.0.1",
     "@google/generative-ai": "^0.21.0",
     "@libsql/client": "^0.17.0",
     "next": "^15.1.0",

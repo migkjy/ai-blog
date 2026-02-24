@@ -123,7 +123,7 @@ async function main() {
         ${excerpt},
         ${category},
         ${[] as string[]},
-        ${'APPPRO'},
+        ${'AI AppPro'},
         true,
         ${publishedAt}::timestamptz,
         ${excerpt}

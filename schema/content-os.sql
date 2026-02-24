@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS newsletters (
   html_content    TEXT NOT NULL,
   plain_content   TEXT,
   status          TEXT DEFAULT 'draft',    -- draft, ready, sent, failed
-  stibee_email_id TEXT,                    -- Stibee 발송 후 반환되는 ID
+  email_service_id TEXT,                   -- 이메일 발송 서비스 ID (Resend 등)
   sent_at         INTEGER,                 -- 발송 시각 (ms epoch)
   created_at      INTEGER DEFAULT (unixepoch() * 1000)
 );
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS content_logs (
   content_type    TEXT NOT NULL,           -- 'blog', 'newsletter', 'sns'
   content_id      TEXT,                    -- FK to newsletters.id or blog_posts.id (logical, not enforced)
   title           TEXT,
-  platform        TEXT,                    -- 'blog.apppro.kr', 'stibee', 'getlate', 'twitter', 'linkedin', etc.
+  platform        TEXT,                    -- 'blog.apppro.kr', 'brevo', 'getlate', 'twitter', 'linkedin', etc.
   status          TEXT DEFAULT 'published', -- published, draft, failed
   metrics         TEXT,                    -- JSON: {"views": 0, "clicks": 0, "subscribers": 0}
   published_at    INTEGER DEFAULT (unixepoch() * 1000),

@@ -7,14 +7,14 @@ CEO 개입 최소화(주 15분 이하)로 고품질 콘텐츠를 자동 생산�
 
 ## 태스크 ID
 
-`ecea58ca-c49d-41fe-8dde-d2c0adac2e51` (서비스/컨텐츠 자동화 시스템 구축 + 홈페이지)
+`2cb751a5-ec2d-4d27-bafb-601f664abc98` (컨텐츠 자동화 시스템 구축 + SNS 멀티채널 운영)
 
 ## MVP 스펙 (v0.1)
 
 ### 핵심 기능
 1. **AI 뉴스 수집**: RSS/API로 AI 관련 뉴스/트렌드 자동 수집
 2. **콘텐츠 생성**: Claude Sonnet API로 주간 뉴스레터 원고 자동 생성
-3. **뉴스레터 발행**: Stibee API로 자동 발송 (기존 이메일 리스트 10,000건 활용)
+3. **뉴스레터 발행**: Brevo API로 자동 발송 (이메일 캠페인 + 구독자 관리)
 4. **블로그 포스팅**: 뉴스레터 콘텐츠를 Next.js 블로그에 자동 게시
 
 ### MVP Cut (v0.2 이후)
@@ -30,11 +30,11 @@ CEO 개입 최소화(주 15분 이하)로 고품질 콘텐츠를 자동 생산�
 |---------|------|------|
 | 프레임워크 | Next.js (App Router) | CEO 방침: 모든 웹은 Next.js |
 | 콘텐츠 생성 | Claude Sonnet API | 월 $0.80 (16건 기준) |
-| 뉴스레터 | Stibee API | 한국 뉴스레터 플랫폼, API 완비 |
+| 뉴스레터 | Brevo API (@getbrevo/brevo) | CEO API키 발급 중 |
 | 블로그 | Next.js SSG/ISR | SEO 최적화 |
 | 뉴스 수집 | RSS + 웹 크롤링 (CLI/API) | n8n 사용 금지 |
 | 배포 | Vercel | 초기 저비용 |
-| DB | NeonDB | 기존 인프라 활용 |
+| DB | Turso (LibSQL) | apppro-kr DB 공유 |
 | SNS (v0.2) | getlate.dev | 멀티플랫폼 배포 |
 
 ## 콘텐츠 전략
@@ -55,7 +55,7 @@ CEO 개입 최소화(주 15분 이하)로 고품질 콘텐츠를 자동 생산�
 | 항목 | v0.1 | v0.2 |
 |------|------|------|
 | Claude API | $0.80/월 | $3-5/월 |
-| Stibee | 무료 (구독자 수 기준) | 유료 전환 가능 |
+| Brevo | 무료 (300통/일) | Starter $9/월 |
 | Vercel | 무료 (Hobby) | Pro $20/월 |
 | **합계** | **~$1.50/월** | **~$5-15/월** |
 
@@ -63,8 +63,8 @@ CEO 개입 최소화(주 15분 이하)로 고품질 콘텐츠를 자동 생산�
 
 ```json
 {
-  "ceo_initial": ["콘텐츠 방향 결정", "Stibee 계정 연동", "첫 뉴스레터 검수"],
-  "ai_initial": ["파이프라인 구축", "프롬프트 설계", "블로그 셋업", "Stibee API 연동"],
+  "ceo_initial": ["콘텐츠 방향 결정", "첫 뉴스레터 검수"],
+  "ai_initial": ["파이프라인 구축", "프롬프트 설계", "블로그 셋업", "Brevo API 연동"],
   "ceo_ongoing": ["주 1회 15분 검수 (선택사항)"],
   "ai_ongoing": ["뉴스 수집", "콘텐츠 생성", "뉴스레터 발송", "블로그 게시"],
   "automation_goal": "high"
@@ -76,7 +76,7 @@ CEO 개입 최소화(주 15분 이하)로 고품질 콘텐츠를 자동 생산�
 ```
 [뉴스 수집 (RSS/API)] → [AI 가공 (Claude Sonnet)] → [뉴스레터 생성]
                                                           ↓
-                                                   [Stibee API 발송]
+                                                   [Brevo API 발송]
                                                           ↓
                                                    [블로그 자동 게시]
                                                           ↓
@@ -102,12 +102,11 @@ content-pipeline/
 │   ├── pipeline/           # 콘텐츠 파이프라인 (CLI 스크립트)
 │   │   ├── collect.ts      # 뉴스 수집 (RSS 파싱)
 │   │   ├── generate.ts     # AI 콘텐츠 생성 (Claude API)
-│   │   ├── publish.ts      # Stibee API 발송 + 블로그 게시
+│   │   ├── publish.ts      # 블로그 게시 + SNS 배포
 │   │   └── run.ts          # 파이프라인 오케스트레이터
 │   ├── lib/
 │   │   ├── db.ts           # NeonDB 연결
 │   │   ├── claude.ts       # Claude API 클라이언트
-│   │   ├── stibee.ts       # Stibee API 클라이언트
 │   │   └── rss.ts          # RSS 파서
 │   └── types/
 │       └── index.ts        # 공통 타입 정의
@@ -139,15 +138,15 @@ npm run pipeline:schedule
 
 | 변수 | 필수 | 발급 방법 |
 |------|------|----------|
-| `DATABASE_URL` | 필수 | NeonDB (기존 인프라, 자비스 VP가 제공) |
+| `TURSO_DB_URL` | 필수 | apppro-kr Turso DB URL |
+| `TURSO_DB_TOKEN` | 필수 | apppro-kr Turso 인증 토큰 |
 | `ANTHROPIC_API_KEY` | 필수 | CEO가 https://console.anthropic.com 에서 발급 |
-| `STIBEE_API_KEY` | 필수 | CEO가 Stibee 대시보드 > 설정 > API에서 발급 |
 
 ```bash
 # .env.local
-DATABASE_URL=postgresql://neondb_owner:...@.../neondb?sslmode=require
+TURSO_DB_URL=libsql://apppro-kr-migkjy.aws-ap-northeast-1.turso.io
+TURSO_DB_TOKEN=eyJ...
 ANTHROPIC_API_KEY=sk-ant-...
-STIBEE_API_KEY=...
 ```
 
 ## 뉴스 수집 소스 (RSS)
@@ -161,15 +160,11 @@ MVP에서 사용할 AI 뉴스 RSS 피드 후보:
 
 > PL 참고: 한국 SMB 타겟이므로 해외 뉴스를 한국어로 가공하고, 한국 시장 관점 인사이트를 추가하는 것이 핵심 차별점.
 
-## Stibee API 참고
+## 이메일 발송 (Brevo — 연동 중)
 
-- **API 문서**: https://api.stibee.com/docs
-- **인증**: `AccessToken` 헤더에 API Key
-- **주요 엔드포인트**:
-  - `POST /v1/emails` - 이메일 발송
-  - `GET /v1/lists` - 구독자 리스트 조회
-  - `POST /v1/lists/{listId}/subscribers` - 구독자 추가
-- **기존 이메일 리스트**: CEO 보유 ~10,000건을 Stibee에 임포트 필요 (CEO 액션)
+- **SDK**: `@getbrevo/brevo`
+- **API Key**: CEO 발급 중 (BREVO_API_KEY)
+- **상태**: 코드 작성 중 (Stibee 제거 완료, Brevo 전환)
 
 ## 프로젝트 경로
 
