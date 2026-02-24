@@ -31,22 +31,22 @@ export async function generateMetadata({
 
   return {
     title: post.title,
-    description: post.meta_description ?? post.excerpt ?? undefined,
+    description: post.metaDescription ?? post.excerpt ?? undefined,
     alternates: {
       canonical,
     },
     openGraph: {
       title: post.title,
-      description: post.meta_description ?? post.excerpt ?? undefined,
+      description: post.metaDescription ?? post.excerpt ?? undefined,
       type: 'article',
       locale: 'ko_KR',
       url: canonical,
-      publishedTime: post.published_at ?? undefined,
+      publishedTime: post.publishedAt ?? undefined,
       authors: [post.author],
       siteName: 'AI AppPro',
       images: [
         {
-          url: `/og?title=${encodeURIComponent(post.title)}&description=${encodeURIComponent(post.meta_description ?? post.excerpt ?? '')}&category=${encodeURIComponent(post.category ?? '')}`,
+          url: `/og?title=${encodeURIComponent(post.title)}&description=${encodeURIComponent(post.metaDescription ?? post.excerpt ?? '')}&category=${encodeURIComponent(post.category ?? '')}`,
           width: 1200,
           height: 630,
           alt: post.title,
@@ -56,7 +56,7 @@ export async function generateMetadata({
     twitter: {
       card: 'summary_large_image',
       title: post.title,
-      description: post.meta_description ?? post.excerpt ?? undefined,
+      description: post.metaDescription ?? post.excerpt ?? undefined,
     },
   };
 }
@@ -141,11 +141,11 @@ export default async function PostPage({
     "@context": "https://schema.org",
     "@type": "BlogPosting",
     "headline": post.title,
-    "description": post.meta_description ?? post.excerpt ?? undefined,
+    "description": post.metaDescription ?? post.excerpt ?? undefined,
     "author": { "@type": "Organization", "name": "AI AppPro" },
     "publisher": { "@type": "Organization", "name": "AI AppPro", "url": "https://apppro.kr" },
-    "datePublished": post.published_at ?? post.created_at,
-    "dateModified": post.updated_at ?? post.published_at ?? post.created_at,
+    "datePublished": post.publishedAt ?? post.createdAt,
+    "dateModified": post.updatedAt ?? post.publishedAt ?? post.createdAt,
     "mainEntityOfPage": {
       "@type": "WebPage",
       "@id": `${BASE_URL}/posts/${slug}`,
@@ -239,7 +239,7 @@ export default async function PostPage({
           <div className="flex items-center gap-3 text-sm text-[var(--color-text-muted)]">
             <span className="font-medium">{post.author}</span>
             <span>&middot;</span>
-            <time>{formatDate(post.published_at ?? post.created_at)}</time>
+            <time>{formatDate(post.publishedAt ?? post.createdAt)}</time>
             <span>&middot;</span>
             <span>{readTime}분 읽기</span>
           </div>

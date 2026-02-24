@@ -1,5 +1,5 @@
 import Parser from "rss-parser";
-import { createClient } from "@libsql/client";
+import { createClient } from "@libsql/client/web";
 
 // --- RSS Feed Sources (from content-strategy.md) ---
 

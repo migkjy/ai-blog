@@ -1,4 +1,4 @@
-import { createClient } from '@libsql/client';
+import { createClient } from '@libsql/client/web';
 import { NextRequest, NextResponse } from 'next/server';
 
 const client = createClient({

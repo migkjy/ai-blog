@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { createClient } from "@libsql/client";
+import { createClient } from "@libsql/client/web";
 import { sendNewsletter, getStibeeStatus } from "../lib/stibee";
 import { publishToSns, getGetlateStatus } from "../lib/getlate";
 

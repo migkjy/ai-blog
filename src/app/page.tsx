@@ -44,7 +44,7 @@ function FeaturedCard({ post }: { post: BlogPost }) {
           </p>
         )}
         <time className="text-xs text-[var(--color-text-muted)]">
-          {formatDate(post.published_at ?? post.created_at)}
+          {formatDate(post.publishedAt ?? post.createdAt)}
         </time>
       </article>
     </Link>
@@ -77,7 +77,7 @@ function PostCard({ post }: { post: BlogPost }) {
             )}
           </div>
           <time className="text-xs text-[var(--color-text-muted)] whitespace-nowrap pt-1 shrink-0">
-            {formatDate(post.published_at ?? post.created_at)}
+            {formatDate(post.publishedAt ?? post.createdAt)}
           </time>
         </div>
       </Link>

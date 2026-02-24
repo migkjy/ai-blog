@@ -1,4 +1,4 @@
-import { createClient } from "@libsql/client";
+import { createClient } from "@libsql/client/web";
 
 const client = createClient({
   url: process.env.TURSO_DB_URL!,
@@ -9,7 +9,7 @@ const BASE_URL = "https://content-pipeline-sage.vercel.app";
 
 export async function GET() {
   const result = await client.execute({
-    sql: 'SELECT title, slug, excerpt, meta_description, category, published_at, created_at FROM blog_posts WHERE published = 1 ORDER BY published_at DESC, created_at DESC LIMIT 20',
+    sql: 'SELECT title, slug, excerpt, metaDescription, category, publishedAt, createdAt FROM blog_posts WHERE published = 1 ORDER BY publishedAt DESC, createdAt DESC LIMIT 20',
     args: [],
   });
 
@@ -18,9 +18,9 @@ export async function GET() {
       (post) => `    <item>
       <title><![CDATA[${post.title}]]></title>
       <link>${BASE_URL}/posts/${post.slug}</link>
-      <description><![CDATA[${post.excerpt || post.meta_description || ""}]]></description>
+      <description><![CDATA[${post.excerpt || post.metaDescription || ""}]]></description>
       ${post.category ? `<category>${post.category}</category>` : ""}
-      <pubDate>${new Date((post.published_at || post.created_at) as string).toUTCString()}</pubDate>
+      <pubDate>${new Date((post.publishedAt || post.createdAt) as string).toUTCString()}</pubDate>
       <guid>${BASE_URL}/posts/${post.slug}</guid>
     </item>`
     )

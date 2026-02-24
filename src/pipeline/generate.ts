@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { createClient } from "@libsql/client";
+import { createClient } from "@libsql/client/web";
 import { getUnusedNews, markNewsAsUsed } from "./collect";
 
 const PROMPT_PATH = join(process.cwd(), "prompts", "newsletter.md");
