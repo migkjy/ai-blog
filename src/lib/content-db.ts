@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client/web';
 
-function getContentDb() {
+export function getContentDb() {
   return createClient({
     url: process.env.CONTENT_OS_DB_URL!,
     authToken: process.env.CONTENT_OS_DB_TOKEN!,
@@ -94,6 +94,7 @@ export interface ContentDistribution {
   published_at: number | null;
   error_message: string | null;
   retry_count: number;
+  metrics: string | null;      // JSON string: { sent, delivered, opened, clicked, openRate, clickRate }
   created_at: number;
   updated_at: number;
 }
@@ -112,6 +113,22 @@ export interface ErrorLog {
   escalated: number;
   resolved_at: number | null;
   resolution_type: string | null;
+}
+
+export interface PipelineNotification {
+  id: string;
+  type: string;        // 'draft_created' | 'qa_failed' | 'published' | 'error_escalation' | 'review_request'
+  target: string;      // 'vp' | 'ceo'
+  title: string;
+  body: string;
+  content_id: string | null;
+  pipeline_log_id: string | null;
+  error_log_id: string | null;
+  status: string;      // 'pending' | 'sent' | 'failed'
+  sent_at: number | null;
+  error_message: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export async function ensureSchema(): Promise<void> {
@@ -163,6 +180,26 @@ export async function ensureSchema(): Promise<void> {
   await db.execute(`INSERT OR IGNORE INTO channels (id, name, type, platform, project, config, is_active) VALUES ('ch-apppro-blog', 'AppPro 블로그', 'blog', 'apppro.kr', 'apppro', '{"publish_api":"/api/cron/publish","auto_publish":true}', 1)`).catch(() => {});
   await db.execute(`INSERT OR IGNORE INTO channels (id, name, type, platform, project, config, is_active) VALUES ('ch-brevo', 'Brevo 뉴스레터', 'newsletter', 'brevo', 'apppro', '{"list_id":8,"template":"weekly"}', 1)`).catch(() => {});
   await db.execute(`INSERT OR IGNORE INTO channels (id, name, type, platform, project, config, is_active) VALUES ('ch-twitter', 'Twitter/X', 'sns', 'twitter', NULL, '{"max_chars":280}', 0)`).catch(() => {});
+  // Phase 2-B: content_distributions metrics 컬럼
+  await db.execute(`ALTER TABLE content_distributions ADD COLUMN metrics TEXT`).catch(() => {});
+  // Phase 2: pipeline_notifications 테이블
+  await db.execute(`CREATE TABLE IF NOT EXISTS pipeline_notifications (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    target TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    content_id TEXT,
+    pipeline_log_id TEXT,
+    error_log_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    sent_at INTEGER,
+    error_message TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`).catch(() => {});
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_notifications_status ON pipeline_notifications(status)`).catch(() => {});
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_notifications_type ON pipeline_notifications(type)`).catch(() => {});
 }
 
 export async function getNewsletters(): Promise<Newsletter[]> {
