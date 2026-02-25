@@ -5,9 +5,9 @@ import {
   logPipelineComplete,
   logPipelineFailed,
   logError,
-  logAutoFix,
   type TriggerType,
 } from '../lib/pipeline-logger';
+import { retryL1, escalateL5 } from '../lib/self-healing';
 
 function getContentDb() {
   return createClient({
@@ -204,37 +204,40 @@ export async function runPublishStage(
     const blogResult = await publishToBlog(item.contentBody, item.title);
 
     if (!blogResult) {
-      const errId = await logError('publisher', 'api_error', 'blog_posts INSERT 실패', { contentId: item.id, channelId: 'ch-apppro-blog' });
-
-      // L1 자동 재시도 (1회)
-      console.log('[stage-publish] 블로그 발행 실패, 1회 재시도...');
-      const retryResult = await publishToBlog(item.contentBody, item.title);
-
-      if (!retryResult) {
-        await logAutoFix(errId, 'failed', '블로그 INSERT 재시도 실패');
-        await logPipelineFailed(pipelineLog.id, '블로그 발행 최종 실패', errId);
-        await updateContentQueueStatus(item.id, 'failed');
-        return { success: false, contentId: item.id, blogPostId: null, distributionId: null, pipelineLogId: pipelineLog.id };
-      }
-
-      await logAutoFix(errId, 'success', '블로그 INSERT 재시도 성공');
-      // retryResult를 blogResult로 사용
-      const distId = await createDistribution(
-        item.id, 'ch-apppro-blog', retryResult.postId,
-        `https://apppro.kr/blog/${retryResult.slug}`
+      // L1 자체교정: 5초 대기 후 1회 재시도
+      const retryResult = await retryL1(
+        () => publishToBlog(item.contentBody, item.title),
+        5000,
+        'publisher',
+        'api_error',
+        `blog_posts INSERT 실패 (content_id: ${item.id})`
       );
 
-      await updateContentQueueStatus(item.id, 'published');
+      if (retryResult && retryResult.result) {
+        const retryBlog = retryResult.result;
+        const distId = await createDistribution(
+          item.id, 'ch-apppro-blog', retryBlog.postId,
+          `https://apppro.kr/blog/${retryBlog.slug}`
+        );
 
-      await logPipelineComplete(pipelineLog.id, 1, {
-        channels_ok: 1,
-        channels_fail: 0,
-        channels: ['apppro-blog'],
-        blog_post_id: retryResult.postId,
-        retry: true,
-      });
+        await updateContentQueueStatus(item.id, 'published');
 
-      return { success: true, contentId: item.id, blogPostId: retryResult.postId, distributionId: distId, pipelineLogId: pipelineLog.id };
+        await logPipelineComplete(pipelineLog.id, 1, {
+          channels_ok: 1,
+          channels_fail: 0,
+          channels: ['apppro-blog'],
+          blog_post_id: retryBlog.postId,
+          self_healing: 'L1_retry_success',
+        });
+
+        return { success: true, contentId: item.id, blogPostId: retryBlog.postId, distributionId: distId, pipelineLogId: pipelineLog.id };
+      }
+
+      // L1 재시도 실패 → 에러 기록
+      const errId = await logError('publisher', 'api_error', `블로그 발행 최종 실패 (L1 재시도 포함, content_id: ${item.id})`, { contentId: item.id, channelId: 'ch-apppro-blog' });
+      await logPipelineFailed(pipelineLog.id, '블로그 발행 최종 실패', errId);
+      await updateContentQueueStatus(item.id, 'failed');
+      return { success: false, contentId: item.id, blogPostId: null, distributionId: null, pipelineLogId: pipelineLog.id };
     }
 
     // 정상 발행
@@ -275,8 +278,17 @@ export async function runPublishStage(
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    const errorLogId = await logError('publisher', 'api_error', errMsg);
-    await logPipelineFailed(pipelineLog.id, errMsg, errorLogId);
+
+    // auth_fail 감지 → L5 에스컬레이션
+    const isAuthFail = errMsg.toLowerCase().includes('auth') || errMsg.toLowerCase().includes('401') || errMsg.toLowerCase().includes('403');
+    if (isAuthFail) {
+      const escId = await escalateL5('publisher', 'auth_fail', errMsg);
+      await logPipelineFailed(pipelineLog.id, errMsg, escId);
+    } else {
+      const errorLogId = await logError('publisher', 'api_error', errMsg);
+      await logPipelineFailed(pipelineLog.id, errMsg, errorLogId);
+    }
+
     return { success: false, contentId: contentId || '', blogPostId: null, distributionId: null, pipelineLogId: pipelineLog.id };
   }
 }

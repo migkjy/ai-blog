@@ -7,6 +7,7 @@ import {
   logError,
   type TriggerType,
 } from '../lib/pipeline-logger';
+import { retryL1, escalateL5 } from '../lib/self-healing';
 
 export interface CollectResult {
   success: boolean;
@@ -56,11 +57,51 @@ export async function runCollectStage(
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    const errorLogId = await logError('rss_collector', 'api_error', errMsg);
+    console.warn(`[stage-collect] 1차 실패: ${errMsg}, L1 재시도 시도...`);
+
+    // L1: 5초 대기 후 전체 수집 1회 재시도
+    const retryResult = await retryL1(
+      async () => {
+        const items = await collectNews();
+        const saved = await saveCollectedNews(items);
+        return { items, saved };
+      },
+      5000,
+      'rss_collector',
+      'api_error',
+      errMsg
+    );
+
+    if (retryResult) {
+      const { items, saved } = retryResult.result;
+      await logPipelineComplete(pipelineLog.id, saved, {
+        raw_items: items.length,
+        saved_items: saved,
+        filter: 'pillar_keyword',
+        self_healing: 'L1_retry_success',
+      });
+
+      console.log(`[stage-collect] L1 재시도 성공: ${items.length}건 수집, ${saved}건 저장`);
+      return {
+        success: true,
+        itemsCollected: items.length,
+        itemsSaved: saved,
+        feedsOk: 0,
+        feedsFail: 0,
+        pipelineLogId: pipelineLog.id,
+      };
+    }
+
+    // L1 재시도도 실패 → auth_fail이면 L5, 아니면 에러 기록만
+    const isAuthFail = errMsg.toLowerCase().includes('auth') || errMsg.toLowerCase().includes('401') || errMsg.toLowerCase().includes('403');
+    if (isAuthFail) {
+      await escalateL5('rss_collector', 'auth_fail', errMsg);
+    }
+
+    const errorLogId = await logError('rss_collector', 'api_error', `L1 재시도 포함 최종 실패: ${errMsg}`);
     await logPipelineFailed(pipelineLog.id, errMsg, errorLogId);
 
-    console.error(`[stage-collect] 실패: ${errMsg}`);
-
+    console.error(`[stage-collect] 최종 실패: ${errMsg}`);
     return {
       success: false,
       itemsCollected: 0,

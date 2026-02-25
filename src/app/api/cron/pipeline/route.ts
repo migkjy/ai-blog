@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runCollectStage } from '../../../../pipeline/stage-collect';
 import { runGenerateStage } from '../../../../pipeline/stage-generate';
 import { ensureSchema } from '../../../../lib/content-db';
+import { runSelfHealingCycle } from '../../../../lib/self-healing';
 
 /**
  * GET /api/cron/pipeline
@@ -28,6 +29,13 @@ export async function GET(req: NextRequest) {
     // DB 스키마 확인 (멱등)
     await ensureSchema();
 
+    // Self-Healing: 이전 실행 잔류 에러 교정
+    console.log('[cron/pipeline] Self-Healing 사이클 실행...');
+    const healingReport = await runSelfHealingCycle();
+    if (healingReport.total > 0) {
+      console.log(`[cron/pipeline] Self-Healing: ${healingReport.total}건 스캔, ${healingReport.fixed}건 교정, ${healingReport.escalated}건 에스컬레이션`);
+    }
+
     // Stage 1: RSS 수집
     console.log('[cron/pipeline] Stage 1: 수집...');
     const collectResult = await runCollectStage('scheduled');
@@ -52,6 +60,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       duration_ms: duration,
+      selfHealing: healingReport.total > 0 ? healingReport : null,
       collect: {
         itemsCollected: collectResult.itemsCollected,
         itemsSaved: collectResult.itemsSaved,

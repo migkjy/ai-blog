@@ -8,7 +8,7 @@ function getContentDb() {
   });
 }
 
-export type PipelineName = 'collect' | 'generate' | 'approve' | 'publish';
+export type PipelineName = 'collect' | 'generate' | 'approve' | 'publish' | 'self-healing';
 export type PipelineStatus = 'started' | 'completed' | 'failed';
 export type TriggerType = 'manual' | 'scheduled' | 'retry';
 
