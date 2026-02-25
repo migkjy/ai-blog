@@ -16,6 +16,8 @@ export interface Newsletter {
   email_service_id: string | null;
   sent_at: number | null;
   created_at: number;
+  content_queue_id: string | null;
+  project: string | null;
 }
 
 export interface ContentQueueItem {
@@ -32,6 +34,11 @@ export interface ContentQueueItem {
   scheduled_at: number | null;
   channel: string | null;
   project: string | null;
+  title: string | null;
+  content_body: string | null;
+  approved_by: string | null;
+  approved_at: number | null;
+  rejected_reason: string | null;
 }
 
 export interface ContentLog {
@@ -63,17 +70,99 @@ export interface NewsSource {
   latest_at: number | null;
 }
 
+export interface Channel {
+  id: string;
+  name: string;
+  type: string;
+  platform: string;
+  project: string | null;
+  config: string | null;
+  credentials_ref: string | null;
+  is_active: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ContentDistribution {
+  id: string;
+  content_id: string;
+  channel_id: string;
+  platform_status: string;
+  platform_id: string | null;
+  platform_url: string | null;
+  scheduled_at: number | null;
+  published_at: number | null;
+  error_message: string | null;
+  retry_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ErrorLog {
+  id: string;
+  occurred_at: number;
+  component: string;
+  error_type: string;
+  error_message: string;
+  content_id: string | null;
+  channel_id: string | null;
+  auto_fix_attempted: number;
+  auto_fix_result: string | null;
+  auto_fix_action: string | null;
+  escalated: number;
+  resolved_at: number | null;
+  resolution_type: string | null;
+}
+
 export async function ensureSchema(): Promise<void> {
   const db = getContentDb();
-  await db.execute(`
-    ALTER TABLE content_queue ADD COLUMN scheduled_at INTEGER
-  `).catch(() => {});
-  await db.execute(`
-    ALTER TABLE content_queue ADD COLUMN channel TEXT
-  `).catch(() => {});
-  await db.execute(`
-    ALTER TABLE content_queue ADD COLUMN project TEXT
-  `).catch(() => {});
+  // Legacy columns (previously added)
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN scheduled_at INTEGER`).catch(() => {});
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN channel TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN project TEXT`).catch(() => {});
+  // Phase 1: content_queue approval flow columns
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN title TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN content_body TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN approved_by TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN approved_at INTEGER`).catch(() => {});
+  await db.execute(`ALTER TABLE content_queue ADD COLUMN rejected_reason TEXT`).catch(() => {});
+  // Phase 1: newsletters linkage columns
+  await db.execute(`ALTER TABLE newsletters ADD COLUMN content_queue_id TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE newsletters ADD COLUMN project TEXT`).catch(() => {});
+  // Phase 1: new tables (idempotent)
+  await db.execute(`CREATE TABLE IF NOT EXISTS channels (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))),
+    name TEXT NOT NULL, type TEXT NOT NULL, platform TEXT NOT NULL,
+    project TEXT, config TEXT, credentials_ref TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`).catch(() => {});
+  await db.execute(`CREATE TABLE IF NOT EXISTS content_distributions (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))),
+    content_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+    platform_status TEXT NOT NULL DEFAULT 'pending',
+    platform_id TEXT, platform_url TEXT, scheduled_at INTEGER, published_at INTEGER,
+    error_message TEXT, retry_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`).catch(() => {});
+  await db.execute(`CREATE TABLE IF NOT EXISTS error_logs (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))),
+    occurred_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    component TEXT NOT NULL, error_type TEXT NOT NULL, error_message TEXT NOT NULL,
+    content_id TEXT, channel_id TEXT,
+    auto_fix_attempted INTEGER NOT NULL DEFAULT 0,
+    auto_fix_result TEXT, auto_fix_action TEXT,
+    escalated INTEGER NOT NULL DEFAULT 0, resolved_at INTEGER, resolution_type TEXT
+  )`).catch(() => {});
+  // Phase 1: pipeline_logs 확장 컬럼 (pipeline-logger에서 사용)
+  await db.execute(`ALTER TABLE pipeline_logs ADD COLUMN trigger_type TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE pipeline_logs ADD COLUMN error_log_id TEXT`).catch(() => {});
+  // Phase 1 시드 데이터 (channels)
+  await db.execute(`INSERT OR IGNORE INTO channels (id, name, type, platform, project, config, is_active) VALUES ('ch-apppro-blog', 'AppPro 블로그', 'blog', 'apppro.kr', 'apppro', '{"publish_api":"/api/cron/publish","auto_publish":true}', 1)`).catch(() => {});
+  await db.execute(`INSERT OR IGNORE INTO channels (id, name, type, platform, project, config, is_active) VALUES ('ch-brevo', 'Brevo 뉴스레터', 'newsletter', 'brevo', 'apppro', '{"list_id":8,"template":"weekly"}', 1)`).catch(() => {});
+  await db.execute(`INSERT OR IGNORE INTO channels (id, name, type, platform, project, config, is_active) VALUES ('ch-twitter', 'Twitter/X', 'sns', 'twitter', NULL, '{"max_chars":280}', 0)`).catch(() => {});
 }
 
 export async function getNewsletters(): Promise<Newsletter[]> {
