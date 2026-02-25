@@ -221,6 +221,135 @@ function deduplicateNews(items: CollectedItem[]): CollectedItem[] {
   return result;
 }
 
+// --- 1단계 경량 필터링 (토큰 소비 0) ---
+
+/** 5대 필라 키워드 매칭 테이블 */
+const PILLAR_KEYWORDS: Record<string, string[]> = {
+  "월요일_AI주간동향": [
+    "ai", "인공지능", "chatgpt", "claude", "gemini", "gpt", "llm",
+    "모델", "발표", "출시", "launch", "release", "announce", "model",
+    "openai", "anthropic", "google", "meta", "microsoft",
+  ],
+  "화요일_실무활용": [
+    "활용", "사용법", "팁", "튜토리얼", "업무", "자동화", "생산성",
+    "워크플로우", "how to", "guide", "tutorial", "productivity",
+    "workflow", "automate", "automation", "tips",
+  ],
+  "수요일_도구리뷰": [
+    "도구", "툴", "서비스", "앱", "플랫폼", "비교", "리뷰", "추천",
+    "tool", "app", "platform", "review", "compare", "alternative",
+    "service", "software",
+  ],
+  "목요일_비즈니스": [
+    "스타트업", "창업", "비즈니스", "수익", "마케팅", "고객", "매출",
+    "saas", "startup", "business", "revenue", "marketing", "customer",
+    "sales", "ecommerce", "entrepreneur",
+  ],
+  "금요일_트렌드": [
+    "트렌드", "미래", "전망", "예측", "연구", "논문", "기술", "혁신",
+    "trend", "future", "forecast", "research", "paper", "innovation",
+    "breakthrough", "study",
+  ],
+};
+
+/** 즉시 제거 키워드 (광고성/무관) */
+const REJECT_KEYWORDS = [
+  "할인", "프로모션", "이벤트 참여", "무료 증정", "쿠폰",
+  "sale", "giveaway", "sweepstakes",
+];
+
+/** 무관 카테고리 키워드 (스포츠/연예/정치) */
+const IRRELEVANT_KEYWORDS = [
+  "스포츠", "연예", "정치", "아이돌", "야구", "축구",
+  "sports", "celebrity", "politics", "entertainment",
+];
+
+/**
+ * Count how many pillar keywords match in the given text.
+ * Returns the total across all pillars.
+ */
+function countPillarKeywordMatches(text: string): number {
+  const lower = text.toLowerCase();
+  let totalMatches = 0;
+  for (const keywords of Object.values(PILLAR_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (lower.includes(kw)) {
+        totalMatches++;
+      }
+    }
+  }
+  return totalMatches;
+}
+
+/**
+ * 1단계 경량 필터: 필라 키워드 매칭 + 등급 기반 통과 여부 판단.
+ * AI 호출 없음 (토큰 소비 0).
+ *
+ * - S등급: 무조건 통과
+ * - A등급: 키워드 1개 이상 매칭 시 통과
+ * - B등급: 키워드 2개 이상 매칭 시만 통과
+ * - 광고성/무관 기사: 즉시 제거
+ */
+export function filterByPillar(articles: CollectedItem[]): CollectedItem[] {
+  const result: CollectedItem[] = [];
+  let passCount = 0;
+  let rejectAd = 0;
+  let rejectIrrelevant = 0;
+  let rejectKeyword = 0;
+
+  for (const article of articles) {
+    const titleLower = article.title.toLowerCase();
+
+    // 즉시 제거: 광고성 키워드
+    if (REJECT_KEYWORDS.some((kw) => titleLower.includes(kw.toLowerCase()))) {
+      rejectAd++;
+      continue;
+    }
+
+    // 즉시 제거: 무관 카테고리
+    if (IRRELEVANT_KEYWORDS.some((kw) => titleLower.includes(kw.toLowerCase()))) {
+      rejectIrrelevant++;
+      continue;
+    }
+
+    // S등급: 무조건 통과
+    if (article.grade === "S") {
+      result.push(article);
+      passCount++;
+      continue;
+    }
+
+    // 키워드 매칭 카운트 (제목 기준)
+    const matches = countPillarKeywordMatches(article.title);
+
+    // A등급: 1개 이상
+    if (article.grade === "A" && matches >= 1) {
+      result.push(article);
+      passCount++;
+      continue;
+    }
+
+    // B등급: 2개 이상
+    if (article.grade === "B" && matches >= 2) {
+      result.push(article);
+      passCount++;
+      continue;
+    }
+
+    // 등급 미지정 or 기준 미달
+    rejectKeyword++;
+  }
+
+  const total = articles.length;
+  const passRate = total > 0 ? ((passCount / total) * 100).toFixed(1) : "0";
+  console.log(
+    `[filter] 1단계 필터: ${total}건 → ${passCount}건 통과 (${passRate}%) | ` +
+    `광고 제거: ${rejectAd}, 무관 제거: ${rejectIrrelevant}, 키워드 미달: ${rejectKeyword}`
+  );
+
+  return result;
+}
+
 /**
  * Collect news from all configured RSS feeds.
  */
@@ -268,7 +397,11 @@ export async function collectNews(): Promise<CollectedItem[]> {
     `[collect] Summary: ${successCount}/${RSS_FEEDS.length} feeds OK, ` +
     `${failCount} failed, ${allItems.length} raw → ${deduped.length} after dedup`
   );
-  return deduped;
+
+  // 1단계 경량 필터링: 필라 키워드 매칭 (토큰 소비 0)
+  const filtered = filterByPillar(deduped);
+
+  return filtered;
 }
 
 function getContentDb() {
