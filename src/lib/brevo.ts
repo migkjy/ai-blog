@@ -206,3 +206,128 @@ export function getBrevoStatus(): BrevoStatus {
     listId,
   };
 }
+
+// ============================================================
+// Phase 1: 예약 발송 + 캠페인 상태 조회 (content-orchestration)
+// ============================================================
+
+export interface SendCampaignScheduledResult {
+  success: boolean;
+  mock: boolean;
+  campaignId?: number;
+  scheduledAt?: string;
+  error?: string;
+}
+
+/**
+ * 이메일 캠페인 생성 + 예약 발송 (scheduledAt 지원)
+ *
+ * 기존 sendCampaign()은 즉시 발송만 지원.
+ * 이 함수는 scheduledAt이 있으면 예약, 없으면 즉시 발송.
+ *
+ * @param listId 발송 대상 리스트 ID
+ * @param subject 이메일 제목
+ * @param htmlContent HTML 본문
+ * @param scheduledAt 예약 시각 (ISO 8601, 예: "2026-02-26T10:00:00+09:00"). null이면 즉시 발송.
+ */
+export async function sendCampaignScheduled(
+  listId: number,
+  subject: string,
+  htmlContent: string,
+  scheduledAt?: string | null,
+): Promise<SendCampaignScheduledResult> {
+  if (isMockMode()) {
+    console.log(`[brevo:mock] sendCampaignScheduled — mock 모드`);
+    console.log(`  listId: ${listId}, subject: ${subject}`);
+    console.log(`  scheduledAt: ${scheduledAt ?? '즉시 발송'}`);
+    return { success: false, mock: true };
+  }
+
+  try {
+    const client = getClient();
+    const senderName = process.env.BREVO_SENDER_NAME || "AI AppPro";
+    const senderEmail = process.env.BREVO_SENDER_EMAIL || "hello@apppro.kr";
+    const campaignName = `[AI AppPro] ${subject} — ${new Date().toISOString().split("T")[0]}`;
+
+    // 캠페인 생성
+    const createResponse = await client.emailCampaigns.createEmailCampaign({
+      name: campaignName,
+      subject,
+      htmlContent,
+      sender: { name: senderName, email: senderEmail },
+      recipients: { listIds: [listId] },
+      ...(scheduledAt ? { scheduledAt } : {}),
+    });
+    const campaignId = (createResponse as unknown as { id?: number }).id;
+
+    if (!campaignId) {
+      return { success: false, mock: false, error: "캠페인 ID 없음" };
+    }
+
+    console.log(`[brevo] 캠페인 생성 완료 (id: ${campaignId})`);
+
+    // scheduledAt 없으면 즉시 발송
+    if (!scheduledAt) {
+      await client.emailCampaigns.sendEmailCampaignNow({ campaignId });
+      console.log(`[brevo] 즉시 발송 완료. Campaign ID: ${campaignId}`);
+    } else {
+      console.log(`[brevo] 예약 발송 설정 완료: ${scheduledAt}. Campaign ID: ${campaignId}`);
+    }
+
+    return { success: true, mock: false, campaignId, scheduledAt: scheduledAt ?? undefined };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[brevo] sendCampaignScheduled 오류: ${message}`);
+    return { success: false, mock: false, error: message };
+  }
+}
+
+export interface CampaignStatusResult {
+  success: boolean;
+  campaignId: number;
+  status: string | null;
+  delivered?: number;
+  opens?: number;
+  clicks?: number;
+  bounces?: number;
+  error?: string;
+}
+
+/**
+ * 캠페인 상태 조회 (발송 결과 확인용).
+ * Phase 1에서는 수동 확인용. Phase 2에서 자동 폴링 적용.
+ */
+export async function getCampaignStatus(campaignId: number): Promise<CampaignStatusResult> {
+  if (isMockMode()) {
+    return { success: false, campaignId, status: null, error: 'MOCK_MODE' };
+  }
+
+  try {
+    const client = getClient();
+    const response = await client.emailCampaigns.getEmailCampaign({ campaignId });
+    const data = response as unknown as {
+      status?: string;
+      statistics?: {
+        globalStats?: {
+          delivered?: number;
+          opens?: number;
+          clicks?: number;
+          bounces?: number;
+        };
+      };
+    };
+
+    return {
+      success: true,
+      campaignId,
+      status: data.status ?? null,
+      delivered: data.statistics?.globalStats?.delivered,
+      opens: data.statistics?.globalStats?.opens,
+      clicks: data.statistics?.globalStats?.clicks,
+      bounces: data.statistics?.globalStats?.bounces,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, campaignId, status: null, error: message };
+  }
+}
