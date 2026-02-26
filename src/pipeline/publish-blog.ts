@@ -2,10 +2,10 @@ import { createClient } from "@libsql/client/web";
 import type { GeneratedBlogPost } from "./generate-blog";
 
 function getTursoClient() {
-  const url = process.env.TURSO_DB_URL;
-  const authToken = process.env.TURSO_DB_TOKEN;
+  const url = process.env.BLOG_DB_URL || process.env.TURSO_DB_URL;
+  const authToken = process.env.BLOG_DB_TOKEN || process.env.TURSO_DB_TOKEN;
   if (!url || !authToken) {
-    throw new Error("TURSO_DB_URL과 TURSO_DB_TOKEN이 필요합니다.");
+    throw new Error("BLOG_DB_URL (또는 TURSO_DB_URL)과 BLOG_DB_TOKEN (또는 TURSO_DB_TOKEN)이 필요합니다.");
   }
   return createClient({ url, authToken });
 }

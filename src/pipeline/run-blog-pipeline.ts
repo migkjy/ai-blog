@@ -14,8 +14,8 @@ const MAX_RETRIES = 2;
 // --- Helpers ---
 
 function getTursoClient() {
-  const url = process.env.TURSO_DB_URL;
-  const authToken = process.env.TURSO_DB_TOKEN;
+  const url = process.env.BLOG_DB_URL || process.env.TURSO_DB_URL;
+  const authToken = process.env.BLOG_DB_TOKEN || process.env.TURSO_DB_TOKEN;
   if (!url || !authToken) return null;
   return createClient({ url, authToken });
 }

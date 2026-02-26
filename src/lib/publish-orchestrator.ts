@@ -13,8 +13,8 @@ function getContentDb() {
 
 function getBlogDb() {
   return createClient({
-    url: process.env.TURSO_DB_URL!,
-    authToken: process.env.TURSO_DB_TOKEN!,
+    url: process.env.BLOG_DB_URL || process.env.TURSO_DB_URL!,
+    authToken: process.env.BLOG_DB_TOKEN || process.env.TURSO_DB_TOKEN!,
   });
 }
 

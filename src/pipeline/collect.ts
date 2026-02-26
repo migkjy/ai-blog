@@ -502,15 +502,32 @@ export async function markNewsAsUsed(urls: string[]): Promise<void> {
   });
 }
 
-// CLI entry point
-if (process.argv[1]?.includes("collect")) {
+// CLI entry point — RSS + YouTube 병렬 수집
+if (process.argv[1]?.includes("collect") && !process.argv[1]?.includes("collect-youtube")) {
   (async () => {
-    const items = await collectNews();
-    const saved = await saveCollectedNews(items);
+    const { collectYouTube } = await import("./collect-youtube");
+
+    const [rssResult, ytResult] = await Promise.allSettled([
+      collectNews(),
+      collectYouTube(),
+    ]);
+
+    const rssItems = rssResult.status === "fulfilled" ? rssResult.value : [];
+    const ytItems = ytResult.status === "fulfilled" ? ytResult.value : [];
+
+    if (rssResult.status === "rejected") {
+      console.warn(`[collect] RSS 수집 실패: ${rssResult.reason}`);
+    }
+    if (ytResult.status === "rejected") {
+      console.warn(`[collect] YouTube 수집 실패: ${ytResult.reason}`);
+    }
+
+    const allItems = [...rssItems, ...ytItems];
+    const saved = await saveCollectedNews(allItems);
 
     // Print source breakdown
     const bySource = new Map<string, number>();
-    for (const item of items) {
+    for (const item of allItems) {
       bySource.set(item.source, (bySource.get(item.source) || 0) + 1);
     }
     console.log("\n--- Source Breakdown ---");
@@ -518,6 +535,6 @@ if (process.argv[1]?.includes("collect")) {
       console.log(`  ${source}: ${count}`);
     }
 
-    console.log(`\n[collect] Done. ${saved} new items saved.`);
+    console.log(`\n[collect] Done. RSS ${rssItems.length} + YouTube ${ytItems.length} = ${allItems.length} items, ${saved} new saved.`);
   })();
 }

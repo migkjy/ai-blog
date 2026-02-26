@@ -1,5 +1,6 @@
 // projects/content-pipeline/src/pipeline/stage-collect.ts
 import { collectNews, saveCollectedNews } from './collect';
+import { collectYouTube } from './collect-youtube';
 import {
   logPipelineStart,
   logPipelineComplete,
@@ -19,10 +20,37 @@ export interface CollectResult {
 }
 
 /**
- * Stage 1: RSS 수집 + pipeline_logs 기록
+ * 병렬로 RSS + YouTube 수집을 실행하고 결과를 합친다.
+ * Promise.allSettled로 개별 실패를 격리한다.
+ */
+async function collectAll() {
+  const [rssResult, ytResult] = await Promise.allSettled([
+    collectNews(),
+    collectYouTube(),
+  ]);
+
+  const rssItems = rssResult.status === 'fulfilled' ? rssResult.value : [];
+  const ytItems = ytResult.status === 'fulfilled' ? ytResult.value : [];
+
+  if (rssResult.status === 'rejected') {
+    console.warn(`[stage-collect] RSS 수집 실패: ${rssResult.reason}`);
+  }
+  if (ytResult.status === 'rejected') {
+    console.warn(`[stage-collect] YouTube 수집 실패: ${ytResult.reason}`);
+  }
+
+  return {
+    items: [...rssItems, ...ytItems],
+    rssCount: rssItems.length,
+    ytCount: ytItems.length,
+  };
+}
+
+/**
+ * Stage 1: RSS + YouTube 수집 + pipeline_logs 기록
  *
- * 기존 collectNews()를 호출하고, 결과를 pipeline_logs에 기록한다.
- * 개별 피드 실패는 collectNews() 내부에서 console.warn으로 처리 (기존 동작 유지).
+ * collectNews()와 collectYouTube()를 병렬 호출하고, 결과를 pipeline_logs에 기록한다.
+ * 개별 피드/채널 실패는 내부에서 console.warn으로 처리 (기존 동작 유지).
  */
 export async function runCollectStage(
   triggerType: TriggerType = 'scheduled'
@@ -30,28 +58,28 @@ export async function runCollectStage(
   const pipelineLog = await logPipelineStart('collect', triggerType);
 
   try {
-    // 기존 collectNews: RSS 파싱 + 중복 제거 + 필라 필터링
-    const items = await collectNews();
+    const { items, rssCount, ytCount } = await collectAll();
     const saved = await saveCollectedNews(items);
 
-    // 피드 통계 추정 (collectNews 내부 로그에서 출력되는 값을 기반)
-    // 정확한 값을 위해 collectNews가 통계를 반환하도록 하면 좋으나,
-    // 기존 코드 변경 최소화를 위해 전체 items 수로 대체
     const metadata = {
-      raw_items: items.length,
+      rss_items: rssCount,
+      youtube_items: ytCount,
+      total_items: items.length,
       saved_items: saved,
       filter: 'pillar_keyword',
     };
 
     await logPipelineComplete(pipelineLog.id, saved, metadata);
 
-    console.log(`[stage-collect] 완료: ${items.length}건 수집, ${saved}건 저장`);
+    console.log(
+      `[stage-collect] 완료: RSS ${rssCount}건 + YouTube ${ytCount}건 = ${items.length}건 수집, ${saved}건 저장`
+    );
 
     return {
       success: true,
       itemsCollected: items.length,
       itemsSaved: saved,
-      feedsOk: 0, // collectNews가 통계를 반환하지 않으므로 0 (Phase 2에서 개선)
+      feedsOk: 0,
       feedsFail: 0,
       pipelineLogId: pipelineLog.id,
     };
@@ -62,9 +90,9 @@ export async function runCollectStage(
     // L1: 5초 대기 후 전체 수집 1회 재시도
     const retryResult = await retryL1(
       async () => {
-        const items = await collectNews();
+        const { items, rssCount, ytCount } = await collectAll();
         const saved = await saveCollectedNews(items);
-        return { items, saved };
+        return { items, saved, rssCount, ytCount };
       },
       5000,
       'rss_collector',
@@ -73,9 +101,11 @@ export async function runCollectStage(
     );
 
     if (retryResult) {
-      const { items, saved } = retryResult.result;
+      const { items, saved, rssCount, ytCount } = retryResult.result;
       await logPipelineComplete(pipelineLog.id, saved, {
-        raw_items: items.length,
+        rss_items: rssCount,
+        youtube_items: ytCount,
+        total_items: items.length,
         saved_items: saved,
         filter: 'pillar_keyword',
         self_healing: 'L1_retry_success',

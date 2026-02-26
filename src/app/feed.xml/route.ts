@@ -1,8 +1,8 @@
 import { createClient } from "@libsql/client/web";
 
 const client = createClient({
-  url: process.env.TURSO_DB_URL!,
-  authToken: process.env.TURSO_DB_TOKEN!,
+  url: process.env.BLOG_DB_URL || process.env.TURSO_DB_URL!,
+  authToken: process.env.BLOG_DB_TOKEN || process.env.TURSO_DB_TOKEN!,
 });
 
 const BASE_URL = "https://content-pipeline-sage.vercel.app";

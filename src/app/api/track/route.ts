@@ -2,8 +2,8 @@ import { createClient } from '@libsql/client/web';
 import { NextRequest, NextResponse } from 'next/server';
 
 const client = createClient({
-  url: process.env.TURSO_DB_URL!,
-  authToken: process.env.TURSO_DB_TOKEN!,
+  url: process.env.BLOG_DB_URL || process.env.TURSO_DB_URL!,
+  authToken: process.env.BLOG_DB_TOKEN || process.env.TURSO_DB_TOKEN!,
 });
 
 export async function POST(req: NextRequest) {
