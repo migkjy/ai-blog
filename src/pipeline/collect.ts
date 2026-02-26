@@ -9,6 +9,8 @@ export interface FeedSource {
   lang: "en" | "ko";
   grade: "S" | "A" | "B";
   category: "news" | "official" | "community" | "research";
+  /** RSS <category> 값 중 허용할 목록. 설정 시 목록에 없는 카테고리의 아이템은 제거. */
+  allowCategories?: string[];
 }
 
 export const RSS_FEEDS: FeedSource[] = [
@@ -93,6 +95,8 @@ export const RSS_FEEDS: FeedSource[] = [
     lang: "ko",
     grade: "A",
     category: "news",
+    // 전체 피드에서 AI 관련 카테고리만 허용 (비AI 기사: Society, 지역뉴스 등 제거)
+    allowCategories: ["AI산업", "AI정책", "AI기술", "AI서비스", "AI스타트업", "ICT"],
   },
   {
     name: "테크니들",
@@ -258,10 +262,13 @@ const REJECT_KEYWORDS = [
   "sale", "giveaway", "sweepstakes",
 ];
 
-/** 무관 카테고리 키워드 (스포츠/연예/정치) */
+/** 무관 카테고리 키워드 (스포츠/연예/정치/농림어업/지역뉴스) */
 const IRRELEVANT_KEYWORDS = [
   "스포츠", "연예", "정치", "아이돌", "야구", "축구",
   "sports", "celebrity", "politics", "entertainment",
+  // 농림어업/지역뉴스 (AI타임스 전체 피드 오염 방지)
+  "어업", "농업", "축산", "수산", "양식", "어민", "농민",
+  "지자체", "군수", "시장 취임", "도지사",
 ];
 
 /**
@@ -370,7 +377,25 @@ export async function collectNews(): Promise<CollectedItem[]> {
       console.log(`[collect] Fetching: ${feed.name} (${feed.lang}, ${feed.grade})...`);
       const result = await parser.parseURL(feed.url);
 
-      const items = (result.items || []).slice(0, 10).map((item) => ({
+      let feedItems = (result.items || []).slice(0, 10);
+
+      // allowCategories 필터: RSS <category> 태그 기반으로 비관련 아이템 제거
+      if (feed.allowCategories && feed.allowCategories.length > 0) {
+        const before = feedItems.length;
+        feedItems = feedItems.filter((item) => {
+          const cats = item.categories || [];
+          // 카테고리 정보가 없으면 일단 통과 (필라 필터에서 재검증)
+          if (cats.length === 0) return true;
+          return cats.some((cat: string) =>
+            feed.allowCategories!.some((allowed) => cat.includes(allowed))
+          );
+        });
+        if (feedItems.length < before) {
+          console.log(`[collect]   ${feed.name}: 카테고리 필터 ${before} → ${feedItems.length}건`);
+        }
+      }
+
+      const items = feedItems.map((item) => ({
         title: item.title || "Untitled",
         url: item.link || "",
         source: feed.name,
