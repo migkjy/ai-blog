@@ -398,7 +398,7 @@ export async function generateBlogPost(
       const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       const message = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: systemPrompt,
         tools: [
           {
@@ -431,6 +431,11 @@ export async function generateBlogPost(
       }
 
       const parsed = toolUseBlock.input as Record<string, unknown>;
+
+      if (!parsed.content || typeof parsed.content !== "string" || parsed.content.length < 100) {
+        console.error("[generate-blog] Claude tool 응답에 content 없음 또는 너무 짧음, mock으로 대체");
+        return generateMockBlogPost(topic, pillar, newsContext);
+      }
 
       const result: GeneratedBlogPost = {
         title: parsed.title as string,
