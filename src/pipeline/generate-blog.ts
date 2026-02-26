@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -368,7 +369,7 @@ export async function generateBlogPost(
   pillar?: ContentPillar,
   newsContext?: string
 ): Promise<GeneratedBlogPost | null> {
-  if (!process.env.GOOGLE_API_KEY) {
+  if (!process.env.GOOGLE_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     return generateMockBlogPost(topic, pillar, newsContext);
   }
 
@@ -388,6 +389,70 @@ export async function generateBlogPost(
 
   if (newsContext) {
     userPrompt += `\n\n## 참고 뉴스/자료 (리서치 보강)\n아래 수집된 뉴스를 참고하여 시의성 있는 콘텐츠를 작성하세요:\n\n${newsContext}`;
+  }
+
+  // Claude API fallback when GOOGLE_API_KEY is not set — uses tool_use for reliable JSON output
+  if (!process.env.GOOGLE_API_KEY && process.env.ANTHROPIC_API_KEY) {
+    try {
+      console.log(`[generate-blog] Claude API 호출 중... (필라: ${pillar || "미지정"})`);
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const message = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4000,
+        system: systemPrompt,
+        tools: [
+          {
+            name: "publish_blog_post",
+            description: "블로그 포스트를 게시합니다. 반드시 이 도구를 호출하여 결과를 반환하세요.",
+            input_schema: {
+              type: "object" as const,
+              properties: {
+                title: { type: "string", description: "포스트 제목 (SEO 최적화, 40자 이내)" },
+                slug: { type: "string", description: "URL용 영문 슬러그 (소문자, 하이픈)" },
+                content: { type: "string", description: "마크다운 본문 (## 부터 시작, 2000~3000자)" },
+                excerpt: { type: "string", description: "포스트 요약 (2~3문장, 150자 이내)" },
+                meta_description: { type: "string", description: "SEO 메타 설명 (150자 이내)" },
+                category: { type: "string", description: "카테고리명" },
+                tags: { type: "array", items: { type: "string" }, description: "태그 배열 (3~5개)" },
+              },
+              required: ["title", "slug", "content", "excerpt", "meta_description", "category", "tags"],
+            },
+          },
+        ],
+        tool_choice: { type: "tool", name: "publish_blog_post" },
+        messages: [{ role: "user", content: userPrompt }],
+      });
+
+      // Extract tool_use block — tool_choice forces this to always be present
+      const toolUseBlock = message.content.find((b) => b.type === "tool_use");
+      if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
+        console.error("[generate-blog] Claude tool_use 블록 없음, mock으로 대체");
+        return generateMockBlogPost(topic, pillar, newsContext);
+      }
+
+      const parsed = toolUseBlock.input as Record<string, unknown>;
+
+      const result: GeneratedBlogPost = {
+        title: parsed.title as string,
+        slug: (parsed.slug as string) || buildSlug(parsed.title as string),
+        content: parsed.content as string,
+        excerpt: parsed.excerpt as string,
+        meta_description: parsed.meta_description as string,
+        category: (parsed.category as string) || pillar || "AI도구리뷰",
+        tags: (parsed.tags as string[]) || [],
+      };
+
+      console.log(`[generate-blog] Claude 생성 완료: "${result.title}"`);
+      console.log(`[generate-blog] 본문 길이: ${result.content.length}자, 카테고리: ${result.category}`);
+
+      const quality = validateQuality(result);
+      console.log(`[generate-blog] 퀄리티 검증: ${quality.score}/8 (${quality.passed ? "PASS" : "WARN"})`);
+
+      return result;
+    } catch (err) {
+      console.error("[generate-blog] Claude API 오류:", err);
+      return generateMockBlogPost(topic, pillar, newsContext);
+    }
   }
 
   try {

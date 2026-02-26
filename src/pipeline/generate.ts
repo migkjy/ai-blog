@@ -228,15 +228,48 @@ ${newsSection}
 }
 \`\`\``;
 
-  // 4. Call Gemini API
-  if (!process.env.GOOGLE_API_KEY) {
-    console.log("[generate] GOOGLE_API_KEY not set. Generating mock newsletter.");
+  // 4. Call AI API (Gemini if GOOGLE_API_KEY, else Claude if ANTHROPIC_API_KEY)
+  if (!process.env.GOOGLE_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    console.log("[generate] No AI API key set. Generating mock newsletter.");
     return generateMockNewsletter(news);
+  }
+
+  // Claude fallback when GOOGLE_API_KEY is not set
+  if (!process.env.GOOGLE_API_KEY && process.env.ANTHROPIC_API_KEY) {
+    try {
+      console.log("[generate] Calling Claude API (fallback)...");
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const msg = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4000,
+        messages: [{ role: "user", content: fullPrompt }],
+      });
+      const responseText = msg.content[0].type === "text" ? msg.content[0].text : "";
+
+      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+      if (!jsonMatch) {
+        console.error("[generate] Failed to parse JSON from Claude response");
+        return generateMockNewsletter(news);
+      }
+      const parsed = JSON.parse(jsonMatch[1]);
+      const result: GeneratedNewsletter = {
+        subject: parsed.subject,
+        html_content: parsed.html_content,
+        plain_content: parsed.plain_content || "",
+        news_urls: news.map((n) => n.url),
+      };
+      console.log(`[generate] Claude newsletter generated: "${result.subject}"`);
+      return result;
+    } catch (err) {
+      console.error("[generate] Claude API error:", err);
+      return generateMockNewsletter(news);
+    }
   }
 
   try {
     console.log("[generate] Calling Gemini Flash API...");
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
     const geminiResult = await model.generateContent(fullPrompt);
