@@ -10,6 +10,33 @@ function getTursoClient() {
   return createClient({ url, authToken });
 }
 
+function getKanbanClient() {
+  const url = process.env.KANBAN_DB_URL;
+  const authToken = process.env.KANBAN_DB_TOKEN;
+  if (!url || !authToken) return null;
+  return createClient({ url, authToken });
+}
+
+// Auto-increment OKR KR3-1 (Content Published) after successful publish
+async function updateOkrContentPublished(): Promise<void> {
+  const kanban = getKanbanClient();
+  if (!kanban) return; // KANBAN_DB vars not set — skip silently
+
+  try {
+    const result = await kanban.execute(
+      "SELECT current_value FROM okr_key_results WHERE id = 'KR3-1'"
+    );
+    const current = Number(result.rows[0]?.current_value ?? 0);
+    await kanban.execute({
+      sql: "UPDATE okr_key_results SET current_value = ?, updated_at = ? WHERE id = 'KR3-1'",
+      args: [current + 1, Date.now()],
+    });
+    console.log(`[publish-blog] OKR KR3-1 Content Published: ${current} → ${current + 1}`);
+  } catch {
+    // OKR update failure must not block publishing
+  }
+}
+
 export async function publishBlogPost(
   post: GeneratedBlogPost
 ): Promise<string | null> {
@@ -54,6 +81,10 @@ export async function publishBlogPost(
 
     console.log(`[publish-blog] 블로그 포스트 게시 완료: "${post.title}"`);
     console.log(`[publish-blog] ID: ${id}, 슬러그: ${post.slug}`);
+
+    // Auto-update OKR (fire-and-forget)
+    updateOkrContentPublished().catch(() => {});
+
     return id;
   } catch (err) {
     console.error("[publish-blog] DB 저장 오류:", err);
