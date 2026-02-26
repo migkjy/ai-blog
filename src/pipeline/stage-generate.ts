@@ -16,7 +16,7 @@ import {
   logAutoFix,
   type TriggerType,
 } from '../lib/pipeline-logger';
-import { retryL2, escalateL5 } from '../lib/self-healing';
+import { notifyDraftCreated, notifyQaFailed } from '../lib/notifications';
 
 const MAX_RETRIES = 2;
 
@@ -160,6 +160,14 @@ export async function runGenerateStage(
     if (!post) {
       const errId = await logError('ai_generator', 'api_error', `${MAX_RETRIES + 1}회 시도 후 최종 실패`);
       await logPipelineFailed(pipelineLog.id, '콘텐츠 생성 최종 실패', errId);
+
+      // 텔레그램 알림: QA 최종 실패
+      try {
+        await notifyQaFailed(finalTopic, qaScore, MAX_RETRIES + 1);
+      } catch (notifyErr) {
+        console.warn(`[stage-generate] 알림 생성 실패 (무시): ${notifyErr}`);
+      }
+
       return { success: false, contentQueueId: null, title: null, qaScore: 0, pipelineLogId: pipelineLog.id };
     }
 
@@ -167,13 +175,21 @@ export async function runGenerateStage(
     const cqId = await saveToContentQueue(post, pillar, qaScore);
     console.log(`[stage-generate] content_queue 저장 완료: id=${cqId}, title="${post.title}"`);
 
+    // 5-1. 텔레그램 알림: 콘텐츠 생성 완료
+    const previewUrl = `https://content-pipeline-sage.vercel.app/pipeline/review`;
+    try {
+      await notifyDraftCreated(cqId, post.title, qaScore, previewUrl);
+    } catch (notifyErr) {
+      console.warn(`[stage-generate] 알림 생성 실패 (무시): ${notifyErr}`);
+    }
+
     // 6. pipeline_logs 완료
     await logPipelineComplete(pipelineLog.id, 1, {
       pillar: pillar || 'none',
       qa_score: qaScore,
       content_type: 'blog',
       content_queue_id: cqId,
-      model: process.env.GOOGLE_API_KEY ? 'gemini-2.0-flash' : 'mock',
+      model: process.env.OPENROUTER_API_KEY ? 'google/gemini-2.0-flash-exp' : 'mock',
     });
 
     return {
@@ -185,60 +201,7 @@ export async function runGenerateStage(
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-
-    // auth_fail 감지 → L5 즉시 에스컬레이션
-    const isAuthFail = errMsg.toLowerCase().includes('auth') ||
-                       errMsg.toLowerCase().includes('401') ||
-                       errMsg.toLowerCase().includes('403') ||
-                       errMsg.toLowerCase().includes('api_key');
-    if (isAuthFail) {
-      const escId = await escalateL5('ai_generator', 'auth_fail', errMsg);
-      await logPipelineFailed(pipelineLog.id, errMsg, escId);
-      return { success: false, contentQueueId: null, title: null, qaScore: 0, pipelineLogId: pipelineLog.id };
-    }
-
-    // L2: 지수 백오프 재시도 (10초 기본, 최대 2회)
-    console.warn(`[stage-generate] catch 진입, L2 백오프 재시도 시도...`);
-    const pillar = pillarOverride || getTodayPillar();
-    const finalTopic = topic || `${pillar || 'AI 활용'} 최신 트렌드 분석`;
-
-    const retryResult = await retryL2(
-      async () => {
-        const post = await generateBlogPost(finalTopic, pillar || undefined);
-        if (!post) throw new Error('생성 결과 null');
-        return post;
-      },
-      2,
-      10000,
-      'ai_generator',
-      'api_error',
-      errMsg
-    );
-
-    if (retryResult) {
-      const post = retryResult.result;
-      const quality = validateQuality(post);
-      const cqId = await saveToContentQueue(post, pillar, quality.score);
-
-      await logPipelineComplete(pipelineLog.id, 1, {
-        pillar: pillar || 'none',
-        qa_score: quality.score,
-        content_type: 'blog',
-        content_queue_id: cqId,
-        self_healing: 'L2_retry_success',
-      });
-
-      return {
-        success: true,
-        contentQueueId: cqId,
-        title: post.title,
-        qaScore: quality.score,
-        pipelineLogId: pipelineLog.id,
-      };
-    }
-
-    // L2 재시도도 실패 → 에러 기록
-    const errorLogId = await logError('ai_generator', 'api_error', `L2 백오프 포함 최종 실패: ${errMsg}`);
+    const errorLogId = await logError('ai_generator', 'api_error', errMsg);
     await logPipelineFailed(pipelineLog.id, errMsg, errorLogId);
     return { success: false, contentQueueId: null, title: null, qaScore: 0, pipelineLogId: pipelineLog.id };
   }

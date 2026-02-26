@@ -1,9 +1,10 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-const AI_DIRECTORY_BASE = "https://ai-directory-seven.vercel.app";
-const BLOG_BASE_URL = "https://content-pipeline-sage.vercel.app";
+// ⛔ vercel.app 도메인 절대 금지 (CEO 반복 지적) — 프로덕션 도메인만 사용
+const AI_DIRECTORY_BASE: string = ""; // 프로덕션 도메인 연결 전까지 비활성
+const BLOG_BASE_URL = "https://apppro.kr/blog"; // 프로덕션 블로그 URL
 
 // Valid pillar values (must match ContentPillar type for quality validation)
 const VALID_PILLARS: ContentPillar[] = [
@@ -46,6 +47,16 @@ const PILLAR_CONFIG: Record<ContentPillar, { promptFile: string; dayOfWeek: numb
 };
 
 // --- Utility ---
+
+/**
+ * Return a markdown link when AI_DIRECTORY_BASE is set,
+ * otherwise return bold plain text (no broken/empty href).
+ */
+function toolLink(slug: string, name: string): string {
+  return AI_DIRECTORY_BASE
+    ? `[${name}](${AI_DIRECTORY_BASE}/tools/${slug})`
+    : `**${name}**`;
+}
 
 function buildSlug(title: string): string {
   return title
@@ -114,7 +125,8 @@ const BASE_SYSTEM_PROMPT = `당신은 한국 소상공인/중소기업을 위한
 - AI 도구 언급 시 디렉토리 링크 삽입 (최소 2개)
 - 마지막에 "마무리" 섹션으로 핵심 요약
 
-## AI 디렉토리 링크
+${AI_DIRECTORY_BASE
+  ? `## AI 디렉토리 링크
 도구 언급 시 아래 링크를 자연스럽게 삽입하세요:
 - ChatGPT: ${AI_DIRECTORY_BASE}/tools/chatgpt
 - Claude: ${AI_DIRECTORY_BASE}/tools/claude
@@ -129,7 +141,11 @@ const BASE_SYSTEM_PROMPT = `당신은 한국 소상공인/중소기업을 위한
 - 이미지: ${AI_DIRECTORY_BASE}/category/image
 - 코딩: ${AI_DIRECTORY_BASE}/category/coding
 - 마케팅: ${AI_DIRECTORY_BASE}/category/marketing
-- 생산성: ${AI_DIRECTORY_BASE}/category/productivity
+- 생산성: ${AI_DIRECTORY_BASE}/category/productivity`
+  : `## AI 도구 언급 규칙
+프로덕션 도메인이 미설정되어 있습니다. 도구를 언급할 때 링크를 절대 삽입하지 마세요.
+대신 공식 홈페이지 URL을 사용하세요 (예: https://chatgpt.com, https://claude.ai).
+.vercel.app 도메인 URL은 절대 포함하지 마세요.`}
 
 ## 금지사항
 - 과장 표현 (예: "혁명적", "놀라운")
@@ -176,14 +192,19 @@ export function validateQuality(post: GeneratedBlogPost): QualityCheckResult {
     detail: `${h2Count}개 (최소 3개)`,
   });
 
-  // 3. AI Directory links (min 2)
-  const dirLinkCount = (
-    post.content.match(/ai-directory-seven\.vercel\.app/g) || []
-  ).length;
+  // 3. AI Directory links (min 2) — auto-pass when no production domain is set
+  const dirLinkPattern = AI_DIRECTORY_BASE
+    ? new RegExp(AI_DIRECTORY_BASE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
+    : null;
+  const dirLinkCount = dirLinkPattern
+    ? (post.content.match(dirLinkPattern) || []).length
+    : 0;
   checks.push({
     name: "AI 디렉토리 링크",
-    passed: dirLinkCount >= 2,
-    detail: `${dirLinkCount}개 (최소 2개)`,
+    passed: !AI_DIRECTORY_BASE || dirLinkCount >= 2,
+    detail: AI_DIRECTORY_BASE
+      ? `${dirLinkCount}개 (최소 2개)`
+      : "프로덕션 도메인 미설정 — 스킵",
   });
 
   // 4. Meta description length (<=150 chars)
@@ -295,7 +316,7 @@ ${newsSection}
 
 ### 1단계: 현재 업무 분석
 
-먼저 반복적으로 수행하는 업무를 목록화하세요. [ChatGPT](${AI_DIRECTORY_BASE}/tools/chatgpt)를 활용하면 업무 분석 자체도 효율적으로 할 수 있습니다.
+먼저 반복적으로 수행하는 업무를 목록화하세요. ${toolLink("chatgpt", "ChatGPT")}를 활용하면 업무 분석 자체도 효율적으로 할 수 있습니다.
 
 - 고객 문의 응대 (FAQ 자동화 가능)
 - SNS 콘텐츠 제작 (AI 이미지+텍스트 생성)
@@ -304,7 +325,7 @@ ${newsSection}
 
 ### 2단계: AI 도구 선택과 도입
 
-업무 유형에 맞는 AI 도구를 선택합니다. [Claude](${AI_DIRECTORY_BASE}/tools/claude)는 긴 문서 작성과 분석에 강점이 있고, [Perplexity](${AI_DIRECTORY_BASE}/tools/perplexity)는 리서치에 효과적입니다.
+업무 유형에 맞는 AI 도구를 선택합니다. ${toolLink("claude", "Claude")}는 긴 문서 작성과 분석에 강점이 있고, ${toolLink("perplexity", "Perplexity")}는 리서치에 효과적입니다.
 
 | 업무 유형 | 추천 AI 도구 | 예상 절감 시간 |
 |-----------|-------------|---------------|
@@ -338,7 +359,7 @@ ${topic}은 더 이상 대기업만의 영역이 아닙니다. 소상공인도 �
 
 지금 바로 하나의 AI 도구를 선택하여 가장 반복적인 업무에 적용해 보세요. 작은 변화가 큰 차이를 만들어냅니다.
 
-더 많은 AI 도구 정보는 [AI 도구 디렉토리](${AI_DIRECTORY_BASE})에서 확인할 수 있습니다.`;
+${AI_DIRECTORY_BASE ? `더 많은 AI 도구 정보는 [AI 도구 디렉토리](${AI_DIRECTORY_BASE})에서 확인할 수 있습니다.` : "더 많은 AI 도구 정보는 AI AppPro 도구 디렉토리에서 확인할 수 있습니다."}`;
 
   const result: GeneratedBlogPost = {
     title: topic.length <= 40 ? topic : topic.slice(0, 37) + "...",
@@ -350,7 +371,7 @@ ${topic}은 더 이상 대기업만의 영역이 아닙니다. 소상공인도 �
     tags: [category, "AI활용", "소상공인", "자동화", "생산성"],
   };
 
-  console.log("[generate-blog] GOOGLE_API_KEY 미설정. Mock 블로그 포스트를 생성합니다.");
+  console.log("[generate-blog] OPENROUTER_API_KEY 미설정. Mock 블로그 포스트를 생성합니다.");
   console.log(`[generate-blog] Mock 생성 완료: "${result.title}"`);
   console.log(`[generate-blog] 본문 길이: ${result.content.length}자, 카테고리: ${result.category}`);
 
@@ -368,7 +389,7 @@ export async function generateBlogPost(
   pillar?: ContentPillar,
   newsContext?: string
 ): Promise<GeneratedBlogPost | null> {
-  if (!process.env.GOOGLE_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     return generateMockBlogPost(topic, pillar, newsContext);
   }
 
@@ -391,21 +412,27 @@ export async function generateBlogPost(
   }
 
   try {
-    console.log(`[generate-blog] Gemini Flash API 호출 중... (필라: ${pillar || "미지정"})`);
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
-      systemInstruction: systemPrompt,
+    console.log(`[generate-blog] OpenRouter API 호출 중 (google/gemini-2.0-flash-exp)... (필라: ${pillar || "미지정"})`);
+    const client = new OpenAI({
+      baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+      apiKey: process.env.OPENROUTER_API_KEY,
     });
 
-    const geminiResult = await model.generateContent(userPrompt);
-    const responseText = geminiResult.response.text();
+    const completion = await client.chat.completions.create({
+      model: "google/gemini-2.0-flash-exp",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    });
+
+    const responseText = completion.choices[0]?.message?.content || "";
 
     // Parse JSON from response — handle multiline string values
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) {
       console.error(
-        "[generate-blog] Gemini 응답에서 JSON을 파싱할 수 없습니다."
+        "[generate-blog] OpenRouter 응답에서 JSON을 파싱할 수 없습니다."
       );
       console.error(
         "[generate-blog] 응답 (처음 500자):",
@@ -556,7 +583,7 @@ export async function generateBlogPost(
 
     return result;
   } catch (err) {
-    console.error("[generate-blog] Gemini API 오류:", err);
+    console.error("[generate-blog] OpenRouter API 오류:", err);
     return null;
   }
 }

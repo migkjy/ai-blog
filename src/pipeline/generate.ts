@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createClient } from "@libsql/client/web";
@@ -7,7 +7,8 @@ import { getUnusedNews, markNewsAsUsed } from "./collect";
 const PROMPT_PATH = join(process.cwd(), "prompts", "newsletter.md");
 
 // AI Directory tool slugs for link injection
-const AI_DIRECTORY_BASE = "https://ai-directory-seven.vercel.app";
+// NOTE: ai-directory vercel.app domain removed. Links disabled until production domain is set.
+const AI_DIRECTORY_BASE = "";
 const POPULAR_TOOLS: Record<string, string> = {
   chatgpt: "ChatGPT",
   claude: "Claude",
@@ -50,7 +51,7 @@ function getDefaultPrompt(): string {
 - 각 뉴스를 한국 소상공인 관점에서 해석
 - 실제 활용 팁 포함
 - 2,000~3,000자 분량
-- AI 도구 링크 형식: <a href="${AI_DIRECTORY_BASE}/tools/{slug}">{도구명}</a>
+- AI 도구 링크: 공식 홈페이지 URL만 사용 (예: https://chatgpt.com). .vercel.app 도메인 절대 금지
 - 반드시 JSON 형식으로 출력: { "subject": "...", "html_content": "...", "plain_content": "..." }`;
 }
 
@@ -156,8 +157,26 @@ function selectNewsForNewsletter(
 
 /**
  * Build the available AI tools context for the prompt.
+ * When AI_DIRECTORY_BASE is not set, instructs AI to use official tool URLs instead.
  */
 function buildToolContext(): string {
+  if (!AI_DIRECTORY_BASE) {
+    return `## AI 도구 언급 규칙
+
+프로덕션 도메인이 미설정되어 있습니다. 도구 링크를 삽입할 때 아래 공식 홈페이지 URL만 사용하세요:
+- ChatGPT: https://chatgpt.com
+- Claude: https://claude.ai
+- Midjourney: https://midjourney.com
+- Canva AI: https://canva.com
+- GitHub Copilot: https://github.com/features/copilot
+- Cursor: https://cursor.com
+- Notion AI: https://notion.so
+- Perplexity: https://perplexity.ai
+
+.vercel.app 도메인 URL은 절대 포함하지 마세요.
+자사 서비스 링크는 넣지 말고 도구명만 텍스트로 언급하세요.`;
+  }
+
   const toolLines = Object.entries(POPULAR_TOOLS)
     .map(([slug, name]) => `- ${name}: ${AI_DIRECTORY_BASE}/tools/${slug}`)
     .join("\n");
@@ -229,23 +248,29 @@ ${newsSection}
 \`\`\``;
 
   // 4. Call Gemini API
-  if (!process.env.GOOGLE_API_KEY) {
-    console.log("[generate] GOOGLE_API_KEY not set. Generating mock newsletter.");
+  if (!process.env.OPENROUTER_API_KEY) {
+    console.log("[generate] OPENROUTER_API_KEY not set. Generating mock newsletter.");
     return generateMockNewsletter(news);
   }
 
   try {
-    console.log("[generate] Calling Gemini Flash API...");
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    console.log("[generate] Calling OpenRouter API (google/gemini-2.0-flash-exp)...");
+    const client = new OpenAI({
+      baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+      apiKey: process.env.OPENROUTER_API_KEY,
+    });
 
-    const geminiResult = await model.generateContent(fullPrompt);
-    const responseText = geminiResult.response.text();
+    const completion = await client.chat.completions.create({
+      model: "google/gemini-2.0-flash-exp",
+      messages: [{ role: "user", content: fullPrompt }],
+    });
+
+    const responseText = completion.choices[0]?.message?.content || "";
 
     // Parse JSON from response
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) {
-      console.error("[generate] Failed to parse JSON from Gemini response");
+      console.error("[generate] Failed to parse JSON from OpenRouter response");
       console.error("[generate] Raw response (first 500 chars):", responseText.slice(0, 500));
       return generateMockNewsletter(news);
     }
@@ -262,7 +287,7 @@ ${newsSection}
     console.log(`[generate] HTML length: ${result.html_content.length} chars`);
     return result;
   } catch (err) {
-    console.error("[generate] Gemini API error:", err);
+    console.error("[generate] OpenRouter API error:", err);
     return generateMockNewsletter(news);
   }
 }
@@ -308,6 +333,17 @@ function generateMockNewsletter(
   const toolEntries = Object.entries(POPULAR_TOOLS);
   const randomTool = toolEntries[Math.floor(Math.random() * toolEntries.length)];
 
+  // Render tool link only when production domain is available
+  const chatgptLink = AI_DIRECTORY_BASE
+    ? `<a href="${AI_DIRECTORY_BASE}/tools/chatgpt" style="color:#2563eb;text-decoration:underline;">ChatGPT</a>`
+    : `<strong>ChatGPT</strong>`;
+  const randomToolLink = AI_DIRECTORY_BASE
+    ? `<a href="${AI_DIRECTORY_BASE}/tools/${randomTool[0]}" style="color:#7c3aed;font-size:13px;font-weight:500;text-decoration:none;"> 자세히 보기 &rarr;</a>`
+    : "";
+  const directoryLink = AI_DIRECTORY_BASE
+    ? `더 많은 AI 도구가 궁금하시면 <a href="${AI_DIRECTORY_BASE}" style="color:#2563eb;text-decoration:underline;">AI AppPro 도구 디렉토리</a>를 방문해보세요.`
+    : "더 많은 AI 도구 정보는 AI AppPro에서 확인하세요.";
+
   const html_content = `
 <h2 style="color:#111827;font-size:20px;font-weight:700;margin:0 0 12px;">안녕하세요, AI AppPro입니다.</h2>
 <p style="color:#374151;font-size:15px;line-height:1.8;margin:0 0 20px;">
@@ -325,7 +361,7 @@ ${newsSummaryHtml}
 <h2 style="color:#111827;font-size:20px;font-weight:700;margin:24px 0 12px;">이번 주 실전 활용 팁</h2>
 <div style="background-color:#eff6ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin:16px 0;">
   <p style="color:#374151;font-size:15px;line-height:1.8;margin:0;">
-    <strong>팁:</strong> <a href="${AI_DIRECTORY_BASE}/tools/chatgpt" style="color:#2563eb;text-decoration:underline;">ChatGPT</a>에서 "내 업종에 맞는 이번 주 SNS 게시물 5개를 작성해줘"라고 입력해보세요. 업종과 타겟 고객을 구체적으로 알려줄수록 더 좋은 결과를 얻을 수 있습니다.
+    <strong>팁:</strong> ${chatgptLink}에서 "내 업종에 맞는 이번 주 SNS 게시물 5개를 작성해줘"라고 입력해보세요. 업종과 타겟 고객을 구체적으로 알려줄수록 더 좋은 결과를 얻을 수 있습니다.
   </p>
 </div>
 
@@ -333,17 +369,16 @@ ${newsSummaryHtml}
 <div style="background-color:#faf5ff;border:1px solid #e9d5ff;padding:16px;border-radius:8px;margin:12px 0;">
   <h4 style="color:#7c3aed;font-size:15px;font-weight:600;margin:0;">${randomTool[1]}</h4>
   <p style="color:#4b5563;font-size:13px;line-height:1.6;margin:6px 0 0;">
-    소상공인의 업무 효율을 높여주는 AI 도구입니다.
-    <a href="${AI_DIRECTORY_BASE}/tools/${randomTool[0]}" style="color:#7c3aed;font-size:13px;font-weight:500;text-decoration:none;"> 자세히 보기 &rarr;</a>
+    소상공인의 업무 효율을 높여주는 AI 도구입니다.${randomToolLink}
   </p>
 </div>
 
 <p style="color:#374151;font-size:15px;line-height:1.8;margin:24px 0 8px;">
-  더 많은 AI 도구가 궁금하시면 <a href="${AI_DIRECTORY_BASE}" style="color:#2563eb;text-decoration:underline;">AI AppPro 도구 디렉토리</a>를 방문해보세요. 이 뉴스레터가 도움이 되셨다면 주변 사장님에게 공유해주세요!
+  ${directoryLink} 이 뉴스레터가 도움이 되셨다면 주변 사장님에게 공유해주세요!
 </p>
 
 <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;font-style:italic;">
-  이 뉴스레터는 GOOGLE_API_KEY가 설정되면 AI가 자동으로 고품질 콘텐츠를 생성합니다. 현재는 미리보기 버전입니다.
+  이 뉴스레터는 OPENROUTER_API_KEY가 설정되면 AI가 자동으로 고품질 콘텐츠를 생성합니다. 현재는 미리보기 버전입니다.
 </p>`;
 
   // Build plain text version
@@ -354,6 +389,13 @@ ${newsSummaryHtml}
   const plainSummaries = restNews
     .map((n) => `- ${n.title} (${n.source})`)
     .join("\n");
+
+  const plainToolLine = AI_DIRECTORY_BASE
+    ? `${randomTool[1]} - ${AI_DIRECTORY_BASE}/tools/${randomTool[0]}`
+    : randomTool[1];
+  const plainDirLine = AI_DIRECTORY_BASE
+    ? `더 많은 AI 도구: ${AI_DIRECTORY_BASE}`
+    : "더 많은 AI 도구 정보는 AI AppPro에서 확인하세요.";
 
   const plain_content = `주간 AI 브리핑 - ${today}
 
@@ -368,9 +410,9 @@ ${plainSummaries}
 ChatGPT에서 "내 업종에 맞는 이번 주 SNS 게시물 5개를 작성해줘"라고 입력해보세요.
 
 [추천 AI 도구]
-${randomTool[1]} - ${AI_DIRECTORY_BASE}/tools/${randomTool[0]}
+${plainToolLine}
 
-더 많은 AI 도구: ${AI_DIRECTORY_BASE}
+${plainDirLine}
 ---
 AI AppPro - 소상공인을 위한 AI 활용 가이드`;
 
