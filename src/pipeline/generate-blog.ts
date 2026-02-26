@@ -369,7 +369,7 @@ export async function generateBlogPost(
   pillar?: ContentPillar,
   newsContext?: string
 ): Promise<GeneratedBlogPost | null> {
-  if (!process.env.GOOGLE_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY && !process.env.GOOGLE_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     return generateMockBlogPost(topic, pillar, newsContext);
   }
 
@@ -389,6 +389,98 @@ export async function generateBlogPost(
 
   if (newsContext) {
     userPrompt += `\n\n## 참고 뉴스/자료 (리서치 보강)\n아래 수집된 뉴스를 참고하여 시의성 있는 콘텐츠를 작성하세요:\n\n${newsContext}`;
+  }
+
+  // OpenRouter API — CEO 지정 통합 API (OPENROUTER_API_KEY 우선)
+  if (process.env.OPENROUTER_API_KEY) {
+    try {
+      console.log(`[generate-blog] OpenRouter API 호출 중... (필라: ${pillar || "미지정"})`);
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://apppro.kr",
+          "X-Title": "AppPro Blog Pipeline",
+        },
+        body: JSON.stringify({
+          model: process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-4",
+          max_tokens: 8000,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          tools: [{
+            type: "function",
+            function: {
+              name: "publish_blog_post",
+              description: "블로그 포스트를 게시합니다. 반드시 이 도구를 호출하여 결과를 반환하세요.",
+              parameters: {
+                type: "object",
+                properties: {
+                  title: { type: "string", description: "포스트 제목 (SEO 최적화, 40자 이내)" },
+                  slug: { type: "string", description: "URL용 영문 슬러그 (소문자, 하이픈)" },
+                  content: { type: "string", description: "마크다운 본문 (## 부터 시작, 2000~3000자)" },
+                  excerpt: { type: "string", description: "포스트 요약 (2~3문장, 150자 이내)" },
+                  meta_description: { type: "string", description: "SEO 메타 설명 (150자 이내)" },
+                  category: { type: "string", description: "카테고리명" },
+                  tags: { type: "array", items: { type: "string" }, description: "태그 배열 (3~5개)" },
+                },
+                required: ["title", "slug", "content", "excerpt", "meta_description", "category", "tags"],
+              },
+            },
+          }],
+          tool_choice: { type: "function", function: { name: "publish_blog_post" } },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenRouter API 오류: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as {
+        choices: Array<{
+          message: {
+            tool_calls?: Array<{ function: { arguments: string } }>;
+            content?: string;
+          };
+        }>;
+      };
+
+      const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+      if (!toolCall) {
+        console.error("[generate-blog] OpenRouter tool_call 없음, mock으로 대체");
+        return generateMockBlogPost(topic, pillar, newsContext);
+      }
+
+      const parsed = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+
+      if (!parsed.content || typeof parsed.content !== "string" || parsed.content.length < 100) {
+        console.error("[generate-blog] OpenRouter content 없음 또는 너무 짧음, mock으로 대체");
+        return generateMockBlogPost(topic, pillar, newsContext);
+      }
+
+      const result: GeneratedBlogPost = {
+        title: parsed.title as string,
+        slug: (parsed.slug as string) || buildSlug(parsed.title as string),
+        content: parsed.content as string,
+        excerpt: parsed.excerpt as string,
+        meta_description: parsed.meta_description as string,
+        category: (parsed.category as string) || pillar || "AI도구리뷰",
+        tags: (parsed.tags as string[]) || [],
+      };
+
+      console.log(`[generate-blog] OpenRouter 생성 완료: "${result.title}"`);
+      console.log(`[generate-blog] 본문 길이: ${result.content.length}자, 카테고리: ${result.category}`);
+
+      const quality = validateQuality(result);
+      console.log(`[generate-blog] 퀄리티 검증: ${quality.score}/8 (${quality.passed ? "PASS" : "WARN"})`);
+
+      return result;
+    } catch (err) {
+      console.error("[generate-blog] OpenRouter API 오류:", err);
+      return generateMockBlogPost(topic, pillar, newsContext);
+    }
   }
 
   // Claude API fallback when GOOGLE_API_KEY is not set — uses tool_use for reliable JSON output
