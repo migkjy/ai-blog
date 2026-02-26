@@ -10,14 +10,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "pipeline": "tsx src/pipeline/run.ts",
-    "pipeline:collect": "tsx src/pipeline/collect.ts",
-    "pipeline:generate": "tsx src/pipeline/generate.ts",
-    "pipeline:publish": "tsx src/pipeline/publish.ts",
-    "generate:blog": "tsx src/pipeline/generate-blog.ts",
-    "publish:blog": "tsx src/pipeline/publish-blog.ts",
-    "pipeline:blog": "tsx src/pipeline/run-blog-pipeline.ts",
-    "publish:sns": "tsx src/pipeline/publish-sns.ts"
+    "pipeline": "node --env-file=.env --import tsx src/pipeline/run.ts",
+    "pipeline:collect": "node --env-file=.env --import tsx src/pipeline/collect.ts",
+    "pipeline:generate": "node --env-file=.env --import tsx src/pipeline/generate.ts",
+    "pipeline:publish": "node --env-file=.env --import tsx src/pipeline/publish.ts",
+    "generate:blog": "node --env-file=.env --import tsx src/pipeline/generate-blog.ts",
+    "publish:blog": "node --env-file=.env --import tsx src/pipeline/publish-blog.ts",
+    "pipeline:blog": "node --env-file=.env --import tsx src/pipeline/run-blog-pipeline.ts",
+    "publish:sns": "node --env-file=.env --import tsx src/pipeline/publish-sns.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
