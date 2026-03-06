@@ -56,14 +56,16 @@ export async function addContact(
 
   try {
     const client = getClient();
-    const attributes: Record<string, string | number | boolean | string[]> = {};
+    const attributes: Record<string, string | number | boolean | string[]> = {
+      SOURCE: "content-pipeline",
+    };
     if (name) {
       attributes["FIRSTNAME"] = name;
     }
 
     const response = await client.contacts.createContact({
       email,
-      attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
+      attributes,
       listIds: targetListIds.length > 0 ? targetListIds : undefined,
       updateEnabled: true,
     });
