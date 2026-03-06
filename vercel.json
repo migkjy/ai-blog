@@ -3,7 +3,8 @@
     "deploymentEnabled": {
       "main": true,
       "production": true,
-      "phase1-mvp": false
+      "phase1-mvp": false,
+      "preview": false
     }
   },
   "crons": [
